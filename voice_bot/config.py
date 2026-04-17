@@ -14,7 +14,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "vosk_model": "",
     "input_device": "",
     "block_size": "4000",
-    "tts_provider": "Windows SAPI (local)",
+    "tts_provider": "RVC (Voice Conversion local)",
     "tts_voice": "",
     "tts_speed": 1.0,
     "piper_exe": "piper",

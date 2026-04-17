@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tkinter as tk
 import webbrowser
+from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from . import __version__
@@ -59,6 +60,18 @@ TIKTOK_VOICES = (
     "en_us_rocket - Rocket",
 )
 OPENAI_VOICES = ("alloy", "ash", "ballad", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer")
+_JESSIE_PTH_NAME = "Jessie (TikTok Text to Speech).pth"
+_JESSIE_INDEX_NAME = "added_IVF62_Flat_nprobe_1_Jessie (TikTok Text to Speech)_v2.index"
+
+
+def _auto_detect_rvc_jessie() -> tuple[str, str]:
+    """Procura os arquivos do modelo Jessie TikTok TTS em locais comuns."""
+    search = [Path.home() / "Downloads", Path.home() / "Desktop", Path.cwd()]
+    pth = next((str(d / _JESSIE_PTH_NAME) for d in search if (d / _JESSIE_PTH_NAME).exists()), "")
+    idx = next((str(d / _JESSIE_INDEX_NAME) for d in search if (d / _JESSIE_INDEX_NAME).exists()), "")
+    return pth, idx
+
+
 PROVIDER_ALIASES = {
     "Piper (local opcional)": "Piper TTS (local opcional)",
     "Coqui TTS (local opcional)": "Coqui TTS / XTTS v2 (local opcional)",
@@ -118,6 +131,16 @@ class DiscordVoiceTTSApp(tk.Tk):
         style.configure("Horizontal.TScale", background="#151017", troughcolor="#0d0a0f")
 
     def _build_variables(self) -> None:
+        # Auto-detecta modelo Jessie se ainda nao configurado
+        if not self.config.get("rvc_model"):
+            _pth, _idx = _auto_detect_rvc_jessie()
+            if _pth:
+                self.config["rvc_model"] = _pth
+                if not self.config.get("rvc_index") and _idx:
+                    self.config["rvc_index"] = _idx
+                if self.config.get("tts_provider", "Windows SAPI (local)") == "Windows SAPI (local)":
+                    self.config["tts_provider"] = "RVC (Voice Conversion local)"
+
         self.bot_token_var = tk.StringVar(value=self.config.get("bot_token", ""))
         self.user_id_var = tk.StringVar(value=self.config.get("user_id", ""))
         self.guild_id_var = tk.StringVar(value=self.config.get("guild_id", ""))
@@ -346,6 +369,20 @@ class DiscordVoiceTTSApp(tk.Tk):
 
         rvc = ttk.Frame(self.options_host, style="Inset.TFrame")
         self.provider_frames["RVC (Voice Conversion local)"] = rvc
+        tk.Label(
+            rvc,
+            text="Jessie (TikTok Text to Speech)",
+            font=("Segoe UI Semibold", 12),
+            bg="#100c12",
+            fg="#d6b36a",
+        ).pack(anchor="w", pady=(0, 6))
+        tk.Label(
+            rvc,
+            text="Conversao de voz local via modelo RVC (.pth + .index FAISS)",
+            font=("Segoe UI", 9),
+            bg="#100c12",
+            fg="#a99aa6",
+        ).pack(anchor="w", pady=(0, 8))
         self._provider_entry(rvc, "Modelo (.pth)", self.rvc_model_var)
         self._provider_entry(rvc, "Index (.index)", self.rvc_index_var)
         rvc_row1 = ttk.Frame(rvc, style="Inset.TFrame")
