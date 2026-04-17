@@ -3,6 +3,8 @@ from __future__ import annotations
 import subprocess
 import sys
 import tempfile
+import urllib.parse
+import urllib.request
 import wave
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -28,6 +30,12 @@ class TTSConfig:
     coqui_model: str = ""
     coqui_python: str = ""
     kokoro_voice: str = "pf_dora"
+    edge_voice: str = "pt-BR-FranciscaNeural"
+    ffmpeg_exe: str = "ffmpeg"
+    tiktok_voice: str = "br_001"
+    tiktok_api_url: str = ""
+    openai_api_key: str = ""
+    openai_voice: str = "alloy"
     speed: float = 1.0
 
 
@@ -198,10 +206,97 @@ class CoquiTTS(TTSProvider):
         return wav_path
 
 
+class EdgeTTSOnline(TTSProvider):
+    def synthesize(self, text: str, config: TTSConfig) -> str:
+        mp3_path = tempfile.NamedTemporaryFile(prefix="edge_tts_", suffix=".mp3", delete=False)
+        mp3_path.close()
+        wav_path = _temp_wav_path()
+        try:
+            subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "edge_tts",
+                    "--voice",
+                    config.edge_voice or "pt-BR-FranciscaNeural",
+                    "--text",
+                    text,
+                    "--write-media",
+                    mp3_path.name,
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            subprocess.run(
+                [config.ffmpeg_exe or "ffmpeg", "-y", "-i", mp3_path.name, wav_path],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+        except Exception as exc:
+            raise TTSError("Edge TTS requer `edge-tts` e `ffmpeg` disponiveis localmente.") from exc
+        finally:
+            cleanup_wav(mp3_path.name)
+        return wav_path
+
+
+class TikTokAPIOnlineTTS(TTSProvider):
+    def synthesize(self, text: str, config: TTSConfig) -> str:
+        template = config.tiktok_api_url.strip()
+        if not template:
+            raise TTSError("Informe uma URL/API TikTok TTS que retorne WAV.")
+
+        quoted_text = urllib.parse.quote_plus(text)
+        quoted_voice = urllib.parse.quote_plus(config.tiktok_voice or "br_001")
+        if "{text}" in template or "{voice}" in template:
+            url = template.replace("{text}", quoted_text).replace("{voice}", quoted_voice)
+            request = urllib.request.Request(url, headers={"User-Agent": "NocturneVoice/1.0"})
+        else:
+            body = urllib.parse.urlencode({"text": text, "voice": config.tiktok_voice or "br_001"}).encode("utf-8")
+            request = urllib.request.Request(template, data=body, headers={"User-Agent": "NocturneVoice/1.0"})
+
+        wav_path = _temp_wav_path()
+        try:
+            with urllib.request.urlopen(request, timeout=60) as response:
+                content_type = response.headers.get("Content-Type", "")
+                data = response.read()
+            if "wav" not in content_type.lower() and not data.startswith(b"RIFF"):
+                raise TTSError("A API TikTok retornou audio que nao parece WAV. Use uma API que retorne WAV.")
+            Path(wav_path).write_bytes(data)
+        except TTSError:
+            raise
+        except Exception as exc:
+            raise TTSError(f"Falha na API TikTok TTS: {exc}") from exc
+        return wav_path
+
+
 class OpenAIOnlineTTS(TTSProvider):
     def synthesize(self, text: str, config: TTSConfig) -> str:
-        del text, config
-        raise TTSError("OpenAI TTS usa API online. Este app esta configurado para rodar TTS localmente.")
+        api_key = config.openai_api_key.strip()
+        if not api_key:
+            raise TTSError("Informe a API key da OpenAI para usar este provedor online.")
+
+        try:
+            from openai import OpenAI
+        except Exception as exc:
+            raise TTSError("Instale o pacote opcional `openai` para usar OpenAI TTS.") from exc
+
+        wav_path = _temp_wav_path()
+        client = OpenAI(api_key=api_key)
+        try:
+            with client.audio.speech.with_streaming_response.create(
+                model="gpt-4o-mini-tts",
+                voice=config.openai_voice or "alloy",
+                input=text,
+                response_format="wav",
+            ) as response:
+                response.stream_to_file(wav_path)
+        except Exception as exc:
+            raise TTSError(f"Falha no OpenAI TTS: {exc}") from exc
+        return wav_path
 
 
 class TTSManager:
@@ -211,7 +306,9 @@ class TTSManager:
         "Piper (local opcional)",
         "Coqui TTS (local opcional)",
         "eSpeak NG (local opcional)",
-        "OpenAI TTS (online, desativado)",
+        "Edge TTS (online opcional)",
+        "TikTok API TTS (online opcional)",
+        "OpenAI TTS (online opcional)",
     )
 
     def __init__(self) -> None:
@@ -221,7 +318,9 @@ class TTSManager:
             "Piper (local opcional)": PiperTTS(),
             "Coqui TTS (local opcional)": CoquiTTS(),
             "eSpeak NG (local opcional)": EspeakTTS(),
-            "OpenAI TTS (online, desativado)": OpenAIOnlineTTS(),
+            "Edge TTS (online opcional)": EdgeTTSOnline(),
+            "TikTok API TTS (online opcional)": TikTokAPIOnlineTTS(),
+            "OpenAI TTS (online opcional)": OpenAIOnlineTTS(),
         }
 
     def synthesize(self, text: str, config: TTSConfig) -> str:

@@ -5,10 +5,12 @@ import webbrowser
 from tkinter import filedialog, messagebox, ttk
 
 from . import audio_devices
+from .config import load_config, save_config
 from .discord_voice import DiscordVoiceBot, DiscordVoiceConfig
 from .installer import InstallManager
 from .transcriber import TranscriberConfig, VoskMicTranscriber
 from .tts import TTSConfig, TTSManager, list_windows_voices
+from .updater import UpdateEvent, UpdateManager
 
 
 WINDOWS_VOICE_HINTS = (
@@ -19,6 +21,9 @@ WINDOWS_VOICE_HINTS = (
 KOKORO_VOICES = ("pf_dora", "pm_alex", "pf_julia", "pm_santa", "af_heart", "am_adam")
 ESPEAK_VOICES = ("pt-br", "pt", "pt+f2", "pt+m3")
 COQUI_EXAMPLES = ("tts_models/pt/cv/vits", "tts_models/multilingual/multi-dataset/xtts_v2")
+EDGE_VOICES = ("pt-BR-FranciscaNeural", "pt-BR-AntonioNeural", "pt-PT-RaquelNeural", "pt-PT-DuarteNeural")
+TIKTOK_VOICES = ("br_001", "br_003", "br_004", "br_005", "pt_female", "pt_male")
+OPENAI_VOICES = ("alloy", "ash", "ballad", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer")
 
 
 class DiscordVoiceTTSApp(tk.Tk):
@@ -32,6 +37,8 @@ class DiscordVoiceTTSApp(tk.Tk):
         self.transcriber = VoskMicTranscriber()
         self.discord_bot = DiscordVoiceBot()
         self.installer = InstallManager()
+        self.updater = UpdateManager()
+        self.config = load_config()
         self.input_map: dict[str, int] = {}
         self.provider_frames: dict[str, ttk.Frame] = {}
         self._running = False
@@ -42,6 +49,7 @@ class DiscordVoiceTTSApp(tk.Tk):
         self._build_ui()
         self.refresh_devices()
         self.after(100, self._poll_services)
+        self.after(1200, self.auto_check_updates)
 
     def _configure_style(self) -> None:
         style = ttk.Style(self)
@@ -74,7 +82,7 @@ class DiscordVoiceTTSApp(tk.Tk):
         self.vosk_model_var = tk.StringVar()
         self.input_device_var = tk.StringVar()
         self.block_size_var = tk.StringVar(value="4000")
-        self.tts_provider_var = tk.StringVar(value="Windows SAPI (local)")
+        self.tts_provider_var = tk.StringVar(value=self.config.get("tts_provider", "Windows SAPI (local)"))
         self.tts_voice_var = tk.StringVar()
         self.tts_speed_var = tk.DoubleVar(value=1.0)
         self.piper_exe_var = tk.StringVar(value="piper")
@@ -84,12 +92,20 @@ class DiscordVoiceTTSApp(tk.Tk):
         self.coqui_python_var = tk.StringVar()
         self.kokoro_voice_var = tk.StringVar(value="pf_dora")
         self.openai_api_key_var = tk.StringVar()
+        self.edge_voice_var = tk.StringVar(value=self.config.get("edge_voice", "pt-BR-FranciscaNeural"))
+        self.ffmpeg_exe_var = tk.StringVar(value=self.config.get("ffmpeg_exe", "ffmpeg"))
+        self.tiktok_voice_var = tk.StringVar(value=self.config.get("tiktok_voice", "br_001"))
+        self.tiktok_api_url_var = tk.StringVar(value=self.config.get("tiktok_api_url", ""))
+        self.openai_voice_var = tk.StringVar(value=self.config.get("openai_voice", "alloy"))
+        self.github_repo_var = tk.StringVar(value=self.config.get("github_repo", ""))
+        self.auto_update_var = tk.BooleanVar(value=bool(self.config.get("auto_update", True)))
         self.status_var = tk.StringVar(value="Pronto")
         self.bot_status_var = tk.StringVar(value="Bot desligado")
         self.stt_status_var = tk.StringVar(value="Transcricao desligada")
         self.last_text_var = tk.StringVar(value="Nenhuma fala transcrita ainda")
         self.provider_help_var = tk.StringVar()
         self.install_status_var = tk.StringVar(value="Instalador pronto")
+        self.update_status_var = tk.StringVar(value="Atualizador pronto")
 
     def _build_ui(self) -> None:
         root = ttk.Frame(self, padding=22)
@@ -115,6 +131,7 @@ class DiscordVoiceTTSApp(tk.Tk):
         self._build_tts_panel(right)
         self._build_runtime_panel(right)
         self._build_install_log(left)
+        self._build_update_panel(right)
 
     def _build_discord_panel(self, parent: ttk.Frame) -> None:
         ttk.Label(parent, text="Bot Discord", style="Section.TLabel").pack(anchor="w")
@@ -227,11 +244,33 @@ class DiscordVoiceTTSApp(tk.Tk):
         ttk.Button(actions, text="Baixar eSpeak NG", command=lambda: webbrowser.open("https://github.com/espeak-ng/espeak-ng/releases")).pack(side="left", padx=(8, 0))
         ttk.Label(espeak, text="Leve e local, mas mais robotico. Bom fallback para PT-BR.", style="Inset.TLabel", wraplength=390).pack(anchor="w", pady=(6, 0))
 
+        edge = ttk.Frame(self.options_host, style="Inset.TFrame")
+        self.provider_frames["Edge TTS (online opcional)"] = edge
+        self._provider_combo(edge, "Voz Edge", self.edge_voice_var, EDGE_VOICES)
+        self._provider_entry(edge, "ffmpeg", self.ffmpeg_exe_var)
+        actions = ttk.Frame(edge, style="Inset.TFrame")
+        actions.pack(fill="x", pady=(6, 0))
+        ttk.Button(actions, text="Instalar edge-tts", command=self.install_edge_tts).pack(side="left")
+        ttk.Button(actions, text="Baixar FFmpeg", command=lambda: webbrowser.open("https://www.gyan.dev/ffmpeg/builds/")).pack(side="left", padx=(8, 0))
+        ttk.Label(edge, text="Vozes neural da Microsoft. Usa internet e requer ffmpeg para converter audio.", style="Inset.TLabel", wraplength=390).pack(anchor="w", pady=(6, 0))
+
+        tiktok = ttk.Frame(self.options_host, style="Inset.TFrame")
+        self.provider_frames["TikTok API TTS (online opcional)"] = tiktok
+        self._provider_combo(tiktok, "Voz TikTok", self.tiktok_voice_var, TIKTOK_VOICES)
+        self._provider_entry(tiktok, "API URL", self.tiktok_api_url_var)
+        ttk.Label(
+            tiktok,
+            text="Use uma API propria que retorne WAV. Placeholders aceitos: {text} e {voice}. Exige internet/API externa.",
+            style="Inset.TLabel",
+            wraplength=390,
+        ).pack(anchor="w", pady=(6, 0))
+
         openai = ttk.Frame(self.options_host, style="Inset.TFrame")
-        self.provider_frames["OpenAI TTS (online, desativado)"] = openai
-        ttk.Label(openai, text="OpenAI TTS exige API online. Mantido desativado para preservar execucao local.", style="Inset.TLabel", wraplength=390).pack(anchor="w")
+        self.provider_frames["OpenAI TTS (online opcional)"] = openai
+        self._provider_combo(openai, "Voz", self.openai_voice_var, OPENAI_VOICES)
+        ttk.Button(openai, text="Instalar pacote OpenAI", command=self.install_openai).pack(anchor="w", pady=(6, 0))
+        ttk.Label(openai, text="OpenAI TTS exige API key e internet. Use somente se aceitar provedor online.", style="Inset.TLabel", wraplength=390).pack(anchor="w")
         self._provider_entry(openai, "API Key", self.openai_api_key_var)
-        ttk.Label(openai, text="Campo exibido apenas para indicar que API seria necessaria; o provedor segue desativado.", style="Inset.TLabel", wraplength=390).pack(anchor="w", pady=(6, 0))
 
     def _build_runtime_panel(self, parent: ttk.Frame) -> None:
         controls = ttk.Frame(parent, style="Panel.TFrame")
@@ -262,6 +301,16 @@ class DiscordVoiceTTSApp(tk.Tk):
         self.install_log.pack(fill="both", expand=False)
         self.install_log.configure(state="disabled")
 
+    def _build_update_panel(self, parent: ttk.Frame) -> None:
+        ttk.Label(parent, text="Atualizador GitHub", style="Section.TLabel").pack(anchor="w", pady=(16, 0))
+        self._provider_entry(parent, "Repo", self.github_repo_var)
+        ttk.Checkbutton(parent, text="Verificar ao abrir", variable=self.auto_update_var, command=self.save_persistent_config).pack(anchor="w", pady=(4, 4))
+        actions = ttk.Frame(parent, style="Panel.TFrame")
+        actions.pack(fill="x", pady=(4, 6))
+        ttk.Button(actions, text="Salvar repo", command=self.save_persistent_config).pack(side="left")
+        ttk.Button(actions, text="Verificar agora", command=self.check_updates_now).pack(side="left", padx=(8, 0))
+        ttk.Label(parent, textvariable=self.update_status_var, style="Status.TLabel").pack(anchor="w", pady=(2, 0))
+
     def _labeled_entry(self, parent: ttk.Frame, label: str, variable: tk.StringVar) -> None:
         row = ttk.Frame(parent, style="Panel.TFrame")
         row.pack(fill="x", pady=6)
@@ -287,6 +336,7 @@ class DiscordVoiceTTSApp(tk.Tk):
 
     def update_provider_options(self) -> None:
         provider = self.tts_provider_var.get()
+        self.save_persistent_config()
         for frame in self.provider_frames.values():
             frame.pack_forget()
         frame = self.provider_frames.get(provider)
@@ -300,7 +350,9 @@ class DiscordVoiceTTSApp(tk.Tk):
                 "Piper (local opcional)": "Excelente para local com modelos .onnx. Informe executavel e modelo.",
                 "Coqui TTS (local opcional)": "Pesado e sensivel a versao do Python. Use o botao para instalar Python 3.10 portatil + Coqui.",
                 "eSpeak NG (local opcional)": "Muito leve e local, mas com voz mais robotica.",
-                "OpenAI TTS (online, desativado)": "Requer API online. Nao usado neste app focado em local.",
+                "Edge TTS (online opcional)": "Vozes online da Microsoft. Boa qualidade, requer edge-tts e ffmpeg.",
+                "TikTok API TTS (online opcional)": "Requer uma API externa/URL propria. Nao e local.",
+                "OpenAI TTS (online opcional)": "Requer API key e internet. Nao e local.",
             }.get(provider, "")
         )
 
@@ -331,6 +383,12 @@ class DiscordVoiceTTSApp(tk.Tk):
 
     def install_kokoro(self) -> None:
         self.installer.run("Kokoro local", lambda: self.installer.pip_install("kokoro>=0.9.4", "soundfile>=0.12"))
+
+    def install_edge_tts(self) -> None:
+        self.installer.run("Edge TTS", lambda: self.installer.pip_install("edge-tts>=7.0"))
+
+    def install_openai(self) -> None:
+        self.installer.run("OpenAI SDK", lambda: self.installer.pip_install("openai>=1.0"))
 
     def install_coqui(self) -> None:
         def action() -> None:
@@ -376,6 +434,12 @@ class DiscordVoiceTTSApp(tk.Tk):
             coqui_model=self.coqui_model_var.get(),
             coqui_python=self.coqui_python_var.get(),
             kokoro_voice=self.kokoro_voice_var.get(),
+            edge_voice=self.edge_voice_var.get(),
+            ffmpeg_exe=self.ffmpeg_exe_var.get(),
+            tiktok_voice=self.tiktok_voice_var.get(),
+            tiktok_api_url=self.tiktok_api_url_var.get(),
+            openai_api_key=self.openai_api_key_var.get(),
+            openai_voice=self.openai_voice_var.get(),
             speed=float(self.tts_speed_var.get()),
         )
 
@@ -443,6 +507,9 @@ class DiscordVoiceTTSApp(tk.Tk):
         for event in self.installer.drain():
             self.install_status_var.set(event.message)
             self._append_install_log(f"[{event.level}] {event.message}")
+        for event in self.updater.drain():
+            self.update_status_var.set(event.message)
+            self._append_install_log(f"[update:{event.level}] {event.message}")
 
         if not self._quitting:
             self.after(100, self._poll_services)
@@ -460,8 +527,41 @@ class DiscordVoiceTTSApp(tk.Tk):
 
     def destroy(self) -> None:
         self._quitting = True
+        self.save_persistent_config()
         self.stop_services()
         super().destroy()
+
+    def save_persistent_config(self) -> None:
+        save_config(
+            {
+                "tts_provider": self.tts_provider_var.get(),
+                "edge_voice": self.edge_voice_var.get(),
+                "ffmpeg_exe": self.ffmpeg_exe_var.get(),
+                "tiktok_voice": self.tiktok_voice_var.get(),
+                "tiktok_api_url": self.tiktok_api_url_var.get(),
+                "openai_voice": self.openai_voice_var.get(),
+                "github_repo": self.github_repo_var.get(),
+                "auto_update": self.auto_update_var.get(),
+            }
+        )
+
+    def auto_check_updates(self) -> None:
+        if self.auto_update_var.get():
+            self.check_updates_now(auto=True)
+
+    def check_updates_now(self, auto: bool = False) -> None:
+        repo = self.github_repo_var.get().strip()
+
+        def action() -> None:
+            updated_by_git = self.updater.update_from_git_if_possible()
+            if not updated_by_git and repo:
+                self.updater.update_from_github_release(repo)
+            elif not updated_by_git:
+                self.updater.events.put(UpdateEvent("warn", "Configure dono/repositorio para releases do GitHub."))
+
+        if not auto:
+            self.save_persistent_config()
+        self.updater.run("Verificar atualizacoes", action)
 
 
 def main() -> None:

@@ -8,4 +8,6 @@ Pillow>=10.0
 # Provedores TTS locais opcionais:
 # kokoro>=0.9.4
 # soundfile>=0.12
+# edge-tts>=7.0
+# openai>=1.0
 # Coqui TTS e instalado pela GUI em tools/python310, porque exige Python compativel.

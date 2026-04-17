@@ -108,11 +108,34 @@ Os downloads/instalacoes rodam em background e aparecem no log `Instalador`. Iss
 - `Piper (local opcional)`: requer o executavel Piper e um modelo `.onnx`.
 - `Coqui TTS (local opcional)`: requer o pacote `TTS` e um modelo local/instalado.
 - `eSpeak NG (local opcional)`: requer o executavel `espeak-ng`.
-- `OpenAI TTS (online, desativado)`: aparece no menu apenas para deixar claro que nao e local. O app nao usa OpenAI por padrao.
+- `Edge TTS (online opcional)`: vozes neurais Microsoft. Requer internet, pacote `edge-tts` e `ffmpeg`.
+- `TikTok API TTS (online opcional)`: exige uma API/URL externa que retorne WAV. Mostra IDs de vozes estilo TikTok.
+- `OpenAI TTS (online opcional)`: requer pacote `openai`, API key e internet.
 
 Para o requisito de rodar tudo localmente, use `Windows SAPI`, `Kokoro`, `Piper`, `Coqui` ou `eSpeak` com modelos/instalacoes locais.
 
 Quando trocar o `Provedor TTS`, o app mostra somente as opcoes relevantes daquele provedor. Para Windows SAPI, por exemplo, ele mostra as vozes instaladas e um atalho para baixar vozes nas configuracoes do Windows.
+
+## Atualizacao pelo GitHub
+
+O app tem uma area `Atualizador GitHub`.
+
+- Em modo fonte, se a pasta tiver `.git` e remoto configurado, ele tenta `git fetch` e `git pull --ff-only` ao abrir.
+- Em versoes empacotadas, informe `dono/repositorio` no campo `Repo` para buscar a ultima release do GitHub.
+- Se houver release nova em `.zip`, o app baixa e copia os arquivos para a pasta do aplicativo.
+- Depois de atualizar, reinicie o app.
+
+O campo `Verificar ao abrir` fica ligado por padrao. Sem repositorio configurado, o app apenas registra no log que precisa de `dono/repositorio`.
+
+## Pastas portateis
+
+Quando empacotado como `.exe`, o app cria uma pasta ao lado do executavel:
+
+```text
+NocturneVoiceData
+```
+
+Ela guarda configuracoes, modelos, ferramentas baixadas, atualizacoes e o Python portatil do Coqui. Em modo fonte, esses dados ficam na propria pasta do projeto.
 
 ### Coqui e Python portatil
 

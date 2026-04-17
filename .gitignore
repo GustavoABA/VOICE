@@ -7,6 +7,9 @@ __pycache__/
 # Runtime downloads and generated local tools.
 tools/
 models/
+updates/
+NocturneVoiceData/
+config.json
 
 # Local secrets/configuration.
 .env
