@@ -149,13 +149,38 @@ O app principal continua rodando no seu `.venv`, mas o provedor `Coqui TTS` cham
 
 ## Gerar executavel
 
-O projeto foi organizado para ser empacotado depois. A interface resolve configuracoes e downloads por Tkinter, entao um executavel pode abrir a mesma tela e instalar recursos opcionais no ambiente do usuario.
+Use o script:
+
+```powershell
+.\build_exe.ps1
+```
+
+Se o PowerShell bloquear scripts, use:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\build_exe.ps1
+```
+
+O executavel sera gerado em:
+
+```text
+dist\NocturneVoice\NocturneVoice.exe
+```
+
+Distribua a pasta inteira:
+
+```text
+dist\NocturneVoice
+```
+
+Nao envie somente o `.exe`, porque o PyInstaller tambem gera a pasta `_internal` com DLLs de Python, Tkinter, Vosk, Discord, PortAudio e outras dependencias.
 
 Pontos importantes para empacotar:
 
 - Modelos Vosk, modelos Piper e outros arquivos grandes devem ficar fora do executavel, em pastas selecionaveis pela tela.
 - Provedores opcionais pesados como Coqui/Kokoro podem aumentar muito o tamanho do executavel.
-- Se empacotar com PyInstaller, inclua dependencias de audio/Discord e teste voz em call no Windows final.
+- A pasta `NocturneVoiceData` sera criada ao lado do executavel quando o app rodar empacotado.
+- Teste o bot em uma call no Windows final, porque Discord Voice depende de rede, permissao do bot e dispositivos de audio.
 
 ## Observacoes
 
