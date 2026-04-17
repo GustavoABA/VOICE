@@ -77,6 +77,9 @@ class DiscordVoiceBot:
 
         self._loop.call_soon_threadsafe(enqueue)
 
+    def update_tts_config(self, config: TTSConfig) -> None:
+        self._tts_config = config
+
     def drain_status(self) -> list[str]:
         values: list[str] = []
         while True:

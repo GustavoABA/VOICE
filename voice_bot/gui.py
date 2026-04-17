@@ -4,8 +4,10 @@ import tkinter as tk
 import webbrowser
 from tkinter import filedialog, messagebox, ttk
 
+from . import __version__
 from . import audio_devices
 from .config import load_config, save_config
+from .constants import APP_NAME, GITHUB_REPO, GITHUB_URL
 from .discord_voice import DiscordVoiceBot, DiscordVoiceConfig
 from .installer import InstallManager
 from .transcriber import TranscriberConfig, VoskMicTranscriber
@@ -22,14 +24,38 @@ KOKORO_VOICES = ("pf_dora", "pm_alex", "pf_julia", "pm_santa", "af_heart", "am_a
 ESPEAK_VOICES = ("pt-br", "pt", "pt+f2", "pt+m3")
 COQUI_EXAMPLES = ("tts_models/pt/cv/vits", "tts_models/multilingual/multi-dataset/xtts_v2")
 EDGE_VOICES = ("pt-BR-FranciscaNeural", "pt-BR-AntonioNeural", "pt-PT-RaquelNeural", "pt-PT-DuarteNeural")
-TIKTOK_VOICES = ("br_001", "br_003", "br_004", "br_005", "pt_female", "pt_male")
+TIKTOK_VOICES = (
+    "br_001 - BR feminina 1",
+    "br_003 - BR feminina 2",
+    "br_004 - BR masculina 1",
+    "br_005 - BR masculina 2",
+    "en_us_001 - US feminina",
+    "en_us_006 - US masculina 1",
+    "en_us_007 - US masculina 2",
+    "en_us_009 - US masculina 3",
+    "en_us_010 - US masculina 4",
+    "en_uk_001 - UK masculina",
+    "en_au_001 - AU feminina",
+    "fr_001 - Frances feminina",
+    "fr_002 - Frances masculina",
+    "de_001 - Alemao feminina",
+    "de_002 - Alemao masculina",
+    "es_002 - Espanhol",
+    "es_mx_002 - Espanhol Mexico",
+    "en_us_ghostface - Ghostface",
+    "en_us_chewbacca - Chewbacca",
+    "en_us_c3po - C3PO",
+    "en_us_stitch - Stitch",
+    "en_us_stormtrooper - Stormtrooper",
+    "en_us_rocket - Rocket",
+)
 OPENAI_VOICES = ("alloy", "ash", "ballad", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer")
 
 
 class DiscordVoiceTTSApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
-        self.title("Nocturne Voice")
+        self.title(APP_NAME)
         self.geometry("1080x800")
         self.minsize(940, 700)
         self.configure(bg="#09070b")
@@ -43,9 +69,11 @@ class DiscordVoiceTTSApp(tk.Tk):
         self.provider_frames: dict[str, ttk.Frame] = {}
         self._running = False
         self._quitting = False
+        self._save_after_id: str | None = None
 
         self._configure_style()
         self._build_variables()
+        self._bind_auto_save()
         self._build_ui()
         self.refresh_devices()
         self.after(100, self._poll_services)
@@ -76,28 +104,29 @@ class DiscordVoiceTTSApp(tk.Tk):
         style.configure("Horizontal.TScale", background="#151017", troughcolor="#0d0a0f")
 
     def _build_variables(self) -> None:
-        self.bot_token_var = tk.StringVar()
-        self.user_id_var = tk.StringVar()
-        self.guild_id_var = tk.StringVar()
-        self.vosk_model_var = tk.StringVar()
-        self.input_device_var = tk.StringVar()
-        self.block_size_var = tk.StringVar(value="4000")
+        self.bot_token_var = tk.StringVar(value=self.config.get("bot_token", ""))
+        self.user_id_var = tk.StringVar(value=self.config.get("user_id", ""))
+        self.guild_id_var = tk.StringVar(value=self.config.get("guild_id", ""))
+        self.vosk_model_var = tk.StringVar(value=self.config.get("vosk_model", ""))
+        self.input_device_var = tk.StringVar(value=self.config.get("input_device", ""))
+        self.block_size_var = tk.StringVar(value=str(self.config.get("block_size", "4000")))
         self.tts_provider_var = tk.StringVar(value=self.config.get("tts_provider", "Windows SAPI (local)"))
-        self.tts_voice_var = tk.StringVar()
-        self.tts_speed_var = tk.DoubleVar(value=1.0)
-        self.piper_exe_var = tk.StringVar(value="piper")
-        self.piper_model_var = tk.StringVar()
-        self.espeak_exe_var = tk.StringVar(value="espeak-ng")
-        self.coqui_model_var = tk.StringVar()
-        self.coqui_python_var = tk.StringVar()
-        self.kokoro_voice_var = tk.StringVar(value="pf_dora")
-        self.openai_api_key_var = tk.StringVar()
+        self.tts_voice_var = tk.StringVar(value=self.config.get("tts_voice", ""))
+        self.tts_speed_var = tk.DoubleVar(value=float(self.config.get("tts_speed", 1.0) or 1.0))
+        self.piper_exe_var = tk.StringVar(value=self.config.get("piper_exe", "piper"))
+        self.piper_model_var = tk.StringVar(value=self.config.get("piper_model", ""))
+        self.espeak_exe_var = tk.StringVar(value=self.config.get("espeak_exe", "espeak-ng"))
+        self.coqui_model_var = tk.StringVar(value=self.config.get("coqui_model", ""))
+        self.coqui_python_var = tk.StringVar(value=self.config.get("coqui_python", ""))
+        self.kokoro_voice_var = tk.StringVar(value=self.config.get("kokoro_voice", "pf_dora"))
+        self.openai_api_key_var = tk.StringVar(value=self.config.get("openai_api_key", ""))
         self.edge_voice_var = tk.StringVar(value=self.config.get("edge_voice", "pt-BR-FranciscaNeural"))
         self.ffmpeg_exe_var = tk.StringVar(value=self.config.get("ffmpeg_exe", "ffmpeg"))
         self.tiktok_voice_var = tk.StringVar(value=self.config.get("tiktok_voice", "br_001"))
         self.tiktok_api_url_var = tk.StringVar(value=self.config.get("tiktok_api_url", ""))
         self.openai_voice_var = tk.StringVar(value=self.config.get("openai_voice", "alloy"))
-        self.github_repo_var = tk.StringVar(value=self.config.get("github_repo", ""))
+        self.manual_text_var = tk.StringVar(value=self.config.get("manual_text", ""))
+        self.github_repo_var = tk.StringVar(value=GITHUB_REPO)
         self.auto_update_var = tk.BooleanVar(value=bool(self.config.get("auto_update", True)))
         self.status_var = tk.StringVar(value="Pronto")
         self.bot_status_var = tk.StringVar(value="Bot desligado")
@@ -107,13 +136,49 @@ class DiscordVoiceTTSApp(tk.Tk):
         self.install_status_var = tk.StringVar(value="Instalador pronto")
         self.update_status_var = tk.StringVar(value="Atualizador pronto")
 
+    def _bind_auto_save(self) -> None:
+        for variable in (
+            self.bot_token_var,
+            self.user_id_var,
+            self.guild_id_var,
+            self.vosk_model_var,
+            self.input_device_var,
+            self.block_size_var,
+            self.tts_provider_var,
+            self.tts_voice_var,
+            self.tts_speed_var,
+            self.piper_exe_var,
+            self.piper_model_var,
+            self.espeak_exe_var,
+            self.coqui_model_var,
+            self.coqui_python_var,
+            self.kokoro_voice_var,
+            self.openai_api_key_var,
+            self.edge_voice_var,
+            self.ffmpeg_exe_var,
+            self.tiktok_voice_var,
+            self.tiktok_api_url_var,
+            self.openai_voice_var,
+            self.manual_text_var,
+            self.auto_update_var,
+        ):
+            variable.trace_add("write", lambda *_args: self._schedule_config_save())
+
+    def _schedule_config_save(self) -> None:
+        if self._quitting:
+            return
+        if self._save_after_id is not None:
+            self.after_cancel(self._save_after_id)
+        self._save_after_id = self.after(600, self.save_persistent_config)
+
     def _build_ui(self) -> None:
         root = ttk.Frame(self, padding=22)
         root.pack(fill="both", expand=True)
 
         header = ttk.Frame(root)
         header.pack(fill="x", pady=(0, 18))
-        ttk.Label(header, text="Nocturne Voice", style="Title.TLabel").pack(side="left")
+        ttk.Label(header, text=APP_NAME, style="Title.TLabel").pack(side="left")
+        ttk.Label(header, text=f"v{__version__}  |  {GITHUB_REPO}", style="Muted.TLabel").pack(side="left", padx=(14, 0), pady=(10, 0))
         ttk.Label(header, textvariable=self.status_var, style="Muted.TLabel").pack(side="right")
 
         main = ttk.Frame(root)
@@ -184,7 +249,8 @@ class DiscordVoiceTTSApp(tk.Tk):
         ttk.Scale(row, from_=0.6, to=1.5, variable=self.tts_speed_var, orient="horizontal").pack(side="left", fill="x", expand=True)
 
         windows_voices = list_windows_voices() or list(WINDOWS_VOICE_HINTS)
-        self.tts_voice_var.set(windows_voices[0])
+        if not self.tts_voice_var.get():
+            self.tts_voice_var.set(windows_voices[0])
         self.options_host = ttk.Frame(parent, style="Inset.TFrame", padding=12)
         self.options_host.pack(fill="x", pady=(10, 8))
         self._build_provider_frames(windows_voices)
@@ -260,7 +326,7 @@ class DiscordVoiceTTSApp(tk.Tk):
         self._provider_entry(tiktok, "API URL", self.tiktok_api_url_var)
         ttk.Label(
             tiktok,
-            text="Use uma API propria que retorne WAV. Placeholders aceitos: {text} e {voice}. Exige internet/API externa.",
+            text="IDs comuns de vozes gratuitas usadas por APIs TikTok TTS. A disponibilidade depende da API escolhida. Placeholders aceitos: {text} e {voice}.",
             style="Inset.TLabel",
             wraplength=390,
         ).pack(anchor="w", pady=(6, 0))
@@ -277,7 +343,14 @@ class DiscordVoiceTTSApp(tk.Tk):
         controls.pack(fill="x", pady=(8, 12))
         self.start_button = ttk.Button(controls, text="Iniciar bot e transcricao", style="Accent.TButton", command=self.toggle_running)
         self.start_button.pack(side="left")
-        ttk.Button(controls, text="Falar teste", command=self.speak_test).pack(side="left", padx=(10, 0))
+
+        manual = ttk.Frame(parent, style="Panel.TFrame")
+        manual.pack(fill="x", pady=(0, 12))
+        ttk.Label(manual, text="Texto para falar", style="Panel.TLabel", width=15).pack(side="left")
+        manual_entry = ttk.Entry(manual, textvariable=self.manual_text_var)
+        manual_entry.pack(side="left", fill="x", expand=True)
+        manual_entry.bind("<Return>", lambda _event: self.speak_manual_text())
+        ttk.Button(manual, text="Enviar para call", command=self.speak_manual_text).pack(side="left", padx=(8, 0))
 
         ttk.Label(parent, text="Status bot", style="Panel.TLabel").pack(anchor="w")
         ttk.Label(parent, textvariable=self.bot_status_var, style="Status.TLabel").pack(anchor="w", pady=(2, 8))
@@ -303,11 +376,14 @@ class DiscordVoiceTTSApp(tk.Tk):
 
     def _build_update_panel(self, parent: ttk.Frame) -> None:
         ttk.Label(parent, text="Atualizador GitHub", style="Section.TLabel").pack(anchor="w", pady=(16, 0))
-        self._provider_entry(parent, "Repo", self.github_repo_var)
+        row = ttk.Frame(parent, style="Panel.TFrame")
+        row.pack(fill="x", pady=4)
+        ttk.Label(row, text="Repo fixo", style="Panel.TLabel", width=15).pack(side="left")
+        ttk.Entry(row, textvariable=self.github_repo_var, state="readonly").pack(side="left", fill="x", expand=True)
         ttk.Checkbutton(parent, text="Verificar ao abrir", variable=self.auto_update_var, command=self.save_persistent_config).pack(anchor="w", pady=(4, 4))
         actions = ttk.Frame(parent, style="Panel.TFrame")
         actions.pack(fill="x", pady=(4, 6))
-        ttk.Button(actions, text="Salvar repo", command=self.save_persistent_config).pack(side="left")
+        ttk.Button(actions, text="Abrir GitHub", command=lambda: webbrowser.open(GITHUB_URL)).pack(side="left")
         ttk.Button(actions, text="Verificar agora", command=self.check_updates_now).pack(side="left", padx=(8, 0))
         ttk.Label(parent, textvariable=self.update_status_var, style="Status.TLabel").pack(anchor="w", pady=(2, 0))
 
@@ -366,18 +442,21 @@ class DiscordVoiceTTSApp(tk.Tk):
         self.input_map = audio_devices.label_map(devices)
         self.input_combo.configure(values=list(self.input_map.keys()))
         default = audio_devices.default_input_index()
-        selected = next((label for label, index in self.input_map.items() if index == default), None)
+        selected = self.input_device_var.get()
+        if selected not in self.input_map:
+            selected = next((label for label, index in self.input_map.items() if index == default), None)
         self.input_device_var.set(selected or next(iter(self.input_map), ""))
 
     def select_vosk_model(self) -> None:
         path = filedialog.askdirectory(title="Selecione a pasta do modelo Vosk")
         if path:
             self.vosk_model_var.set(path)
+            self.save_persistent_config()
 
     def install_vosk_model(self) -> None:
         def action() -> None:
             path = self.installer.download_vosk_pt()
-            self.after(0, lambda: self.vosk_model_var.set(str(path)))
+            self.after(0, lambda: (self.vosk_model_var.set(str(path)), self.save_persistent_config()))
 
         self.installer.run("Modelo Vosk PT-BR", action)
 
@@ -393,7 +472,7 @@ class DiscordVoiceTTSApp(tk.Tk):
     def install_coqui(self) -> None:
         def action() -> None:
             python_exe = self.installer.install_portable_coqui()
-            self.after(0, lambda: self.coqui_python_var.set(str(python_exe)))
+            self.after(0, lambda: (self.coqui_python_var.set(str(python_exe)), self.save_persistent_config()))
 
         self.installer.run("Python 3.10 portatil + Coqui TTS", action)
 
@@ -408,21 +487,25 @@ class DiscordVoiceTTSApp(tk.Tk):
         path = filedialog.askopenfilename(title="Selecione piper.exe", filetypes=(("Executavel", "*.exe"), ("Todos", "*.*")))
         if path:
             self.piper_exe_var.set(path)
+            self.save_persistent_config()
 
     def select_piper_model(self) -> None:
         path = filedialog.askopenfilename(title="Selecione modelo Piper .onnx", filetypes=(("Modelo ONNX", "*.onnx"), ("Todos", "*.*")))
         if path:
             self.piper_model_var.set(path)
+            self.save_persistent_config()
 
     def select_espeak_exe(self) -> None:
         path = filedialog.askopenfilename(title="Selecione espeak-ng.exe", filetypes=(("Executavel", "*.exe"), ("Todos", "*.*")))
         if path:
             self.espeak_exe_var.set(path)
+            self.save_persistent_config()
 
     def select_coqui_python(self) -> None:
         path = filedialog.askopenfilename(title="Selecione python.exe do Coqui", filetypes=(("Python", "python.exe"), ("Todos", "*.*")))
         if path:
             self.coqui_python_var.set(path)
+            self.save_persistent_config()
 
     def current_tts_config(self) -> TTSConfig:
         return TTSConfig(
@@ -448,6 +531,7 @@ class DiscordVoiceTTSApp(tk.Tk):
             self.stop_services()
             return
 
+        self.save_persistent_config()
         input_device = self.input_map.get(self.input_device_var.get())
         try:
             self.discord_bot.start(
@@ -490,11 +574,17 @@ class DiscordVoiceTTSApp(tk.Tk):
         self.bot_status_var.set("Bot desligado")
         self.stt_status_var.set("Transcricao desligada")
 
-    def speak_test(self) -> None:
+    def speak_manual_text(self) -> None:
         if not self.discord_bot.running:
-            messagebox.showwarning("Teste", "Inicie o bot antes de testar a fala.")
+            messagebox.showwarning("Falar na call", "Inicie o bot antes de enviar texto para a call.")
             return
-        self.discord_bot.speak("Teste de voz do bot local em portugues do Brasil.")
+        text = self.manual_text_var.get().strip()
+        if not text:
+            messagebox.showwarning("Falar na call", "Digite uma frase para o bot falar.")
+            return
+        self.save_persistent_config()
+        self.discord_bot.update_tts_config(self.current_tts_config())
+        self.discord_bot.speak(text)
 
     def _poll_services(self) -> None:
         for status in self.discord_bot.drain_status():
@@ -503,6 +593,7 @@ class DiscordVoiceTTSApp(tk.Tk):
             self.stt_status_var.set(status)
         for text in self.transcriber.drain_texts():
             self.last_text_var.set(text)
+            self.discord_bot.update_tts_config(self.current_tts_config())
             self.discord_bot.speak(text)
         for event in self.installer.drain():
             self.install_status_var.set(event.message)
@@ -532,15 +623,32 @@ class DiscordVoiceTTSApp(tk.Tk):
         super().destroy()
 
     def save_persistent_config(self) -> None:
+        self._save_after_id = None
         save_config(
             {
+                "bot_token": self.bot_token_var.get(),
+                "user_id": self.user_id_var.get(),
+                "guild_id": self.guild_id_var.get(),
+                "vosk_model": self.vosk_model_var.get(),
+                "input_device": self.input_device_var.get(),
+                "block_size": self.block_size_var.get(),
                 "tts_provider": self.tts_provider_var.get(),
+                "tts_voice": self.tts_voice_var.get(),
+                "tts_speed": self.tts_speed_var.get(),
+                "piper_exe": self.piper_exe_var.get(),
+                "piper_model": self.piper_model_var.get(),
+                "espeak_exe": self.espeak_exe_var.get(),
+                "coqui_model": self.coqui_model_var.get(),
+                "coqui_python": self.coqui_python_var.get(),
+                "kokoro_voice": self.kokoro_voice_var.get(),
                 "edge_voice": self.edge_voice_var.get(),
                 "ffmpeg_exe": self.ffmpeg_exe_var.get(),
                 "tiktok_voice": self.tiktok_voice_var.get(),
                 "tiktok_api_url": self.tiktok_api_url_var.get(),
+                "openai_api_key": self.openai_api_key_var.get(),
                 "openai_voice": self.openai_voice_var.get(),
-                "github_repo": self.github_repo_var.get(),
+                "manual_text": self.manual_text_var.get(),
+                "github_repo": GITHUB_REPO,
                 "auto_update": self.auto_update_var.get(),
             }
         )
@@ -550,7 +658,7 @@ class DiscordVoiceTTSApp(tk.Tk):
             self.check_updates_now(auto=True)
 
     def check_updates_now(self, auto: bool = False) -> None:
-        repo = self.github_repo_var.get().strip()
+        repo = GITHUB_REPO
 
         def action() -> None:
             updated_by_git = self.updater.update_from_git_if_possible()

@@ -12,6 +12,7 @@ from threading import Thread
 from typing import Callable
 
 from . import __version__
+from .constants import GITHUB_REPO, GITHUB_URL
 from .paths import app_base_dir, updates_dir
 
 
@@ -65,6 +66,7 @@ class UpdateManager:
             self.events.put(UpdateEvent("warn", "Git nao encontrado; tentando GitHub releases."))
             return False
 
+        self._ensure_fixed_origin(git, root)
         self._run_command([git, "fetch", "--all", "--prune"], cwd=root)
         branch = subprocess.check_output([git, "branch", "--show-current"], cwd=root, text=True).strip()
         if not branch:
@@ -88,8 +90,8 @@ class UpdateManager:
         return True
 
     def update_from_github_release(self, repo: str) -> None:
-        clean_repo = repo.strip()
-        if not clean_repo or "/" not in clean_repo:
+        clean_repo = normalize_github_repo(repo)
+        if "/" not in clean_repo:
             raise ValueError("Informe o repositorio GitHub no formato dono/repositorio.")
 
         release = self._fetch_json(f"https://api.github.com/repos/{clean_repo}/releases/latest")
@@ -159,6 +161,19 @@ class UpdateManager:
         if code != 0:
             raise RuntimeError(f"Comando terminou com codigo {code}.")
 
+    def _ensure_fixed_origin(self, git: str, root: Path) -> None:
+        target_url = f"{GITHUB_URL}.git"
+        try:
+            current_url = subprocess.check_output([git, "remote", "get-url", "origin"], cwd=root, text=True).strip()
+        except Exception:
+            self._run_command([git, "remote", "add", "origin", target_url], cwd=root)
+            self.events.put(UpdateEvent("info", f"Remote origin configurado para {target_url}."))
+            return
+
+        if normalize_github_repo(current_url) != GITHUB_REPO:
+            self._run_command([git, "remote", "set-url", "origin", target_url], cwd=root)
+            self.events.put(UpdateEvent("info", f"Remote origin corrigido para {target_url}."))
+
 
 def _single_child_dir(path: Path) -> Path:
     children = [child for child in path.iterdir() if child.is_dir()]
@@ -175,3 +190,13 @@ def _version_tuple(value: str) -> tuple[int, ...]:
         digits = "".join(ch for ch in piece if ch.isdigit())
         parts.append(int(digits or "0"))
     return tuple(parts)
+
+
+def normalize_github_repo(value: str) -> str:
+    clean = (value or "").strip() or GITHUB_REPO
+    clean = clean.removeprefix("git@github.com:")
+    clean = clean.removeprefix("https://github.com/")
+    clean = clean.removeprefix("http://github.com/")
+    clean = clean.removeprefix("github.com/")
+    clean = clean.removesuffix(".git")
+    return clean.strip("/")

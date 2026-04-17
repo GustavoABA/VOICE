@@ -95,7 +95,7 @@ O app agora tem uma area `Instalador` dentro da janela Tkinter. Quando um recurs
 - `Abrir configuracoes de fala`: abre a tela do Windows para instalar vozes SAPI.
 - `Atualizar lista de vozes`: recarrega as vozes SAPI instaladas.
 - `Instalar Kokoro local`: instala `kokoro` e `soundfile` no Python atual.
-- `Instalar Python portatil + Coqui`: baixa um Python 3.10 portatil em `tools/python310/` e instala `TTS==0.22.0` nele.
+- `Instalar Python portatil + Coqui`: baixa um Python 3.10 portatil em `tools/python310/`, prepara `numpy/Cython` e instala `TTS==0.22.0` nele.
 - `Baixar Piper`: abre a pagina de releases do Piper; depois selecione `piper.exe` e o modelo `.onnx`.
 - `Baixar eSpeak NG`: abre a pagina de releases; depois selecione `espeak-ng.exe`.
 
@@ -116,16 +116,25 @@ Para o requisito de rodar tudo localmente, use `Windows SAPI`, `Kokoro`, `Piper`
 
 Quando trocar o `Provedor TTS`, o app mostra somente as opcoes relevantes daquele provedor. Para Windows SAPI, por exemplo, ele mostra as vozes instaladas e um atalho para baixar vozes nas configuracoes do Windows.
 
+## Texto manual para a call
+
+Depois que o bot estiver conectado na call, use o campo `Texto para falar` e clique em `Enviar para call`. O bot fala exatamente o texto digitado usando o provedor TTS selecionado.
+
 ## Atualizacao pelo GitHub
 
 O app tem uma area `Atualizador GitHub`.
 
+- O repositorio fixo do projeto e `GustavoABA/VOICE`: `https://github.com/GustavoABA/VOICE`.
 - Em modo fonte, se a pasta tiver `.git` e remoto configurado, ele tenta `git fetch` e `git pull --ff-only` ao abrir.
-- Em versoes empacotadas, informe `dono/repositorio` no campo `Repo` para buscar a ultima release do GitHub.
+- Em versoes empacotadas, ele procura a ultima release do repositorio fixo no GitHub.
 - Se houver release nova em `.zip`, o app baixa e copia os arquivos para a pasta do aplicativo.
 - Depois de atualizar, reinicie o app.
 
-O campo `Verificar ao abrir` fica ligado por padrao. Sem repositorio configurado, o app apenas registra no log que precisa de `dono/repositorio`.
+O campo `Verificar ao abrir` fica ligado por padrao. O versionamento compara a tag da release do GitHub com a versao interna do app.
+
+## Configuracoes salvas
+
+Os campos da tela sao salvos em `config.json` para aparecerem preenchidos ao abrir novamente. Isso inclui token do bot e API keys, entao mantenha esse arquivo apenas no seu computador e nao publique.
 
 ## Pastas portateis
 
@@ -146,6 +155,8 @@ tools\python310\python.exe
 ```
 
 O app principal continua rodando no seu `.venv`, mas o provedor `Coqui TTS` chama esse Python 3.10 por subprocess para gerar o WAV. Use o botao `Instalar Python portatil + Coqui` e aguarde o log terminar. O campo `Python 3.10` sera preenchido automaticamente.
+
+Se o Coqui falhar com `No module named 'numpy'`, use a versao atual do app e clique de novo em `Instalar Python portatil + Coqui`. O instalador agora instala `numpy` e `Cython` antes de montar o pacote `TTS`.
 
 ## Gerar executavel
 

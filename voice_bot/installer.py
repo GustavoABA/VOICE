@@ -76,7 +76,29 @@ class InstallManager:
         python_exe = self.install_portable_python310()
         self.events.put(InstallEvent("info", "Instalando Coqui TTS no Python 3.10 portatil..."))
         self._run_command([str(python_exe), "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"])
-        self._run_command([str(python_exe), "-m", "pip", "install", "--prefer-binary", "TTS==0.22.0"])
+        self._run_command(
+            [
+                str(python_exe),
+                "-m",
+                "pip",
+                "install",
+                "--prefer-binary",
+                "numpy==1.26.4",
+                "Cython<3",
+                "packaging",
+            ]
+        )
+        self._run_command(
+            [
+                str(python_exe),
+                "-m",
+                "pip",
+                "install",
+                "--prefer-binary",
+                "--no-build-isolation",
+                "TTS==0.22.0",
+            ]
+        )
         return python_exe
 
     def install_portable_python310(self) -> Path:

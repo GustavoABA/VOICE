@@ -249,13 +249,14 @@ class TikTokAPIOnlineTTS(TTSProvider):
         if not template:
             raise TTSError("Informe uma URL/API TikTok TTS que retorne WAV.")
 
+        voice_id = _choice_id(config.tiktok_voice or "br_001")
         quoted_text = urllib.parse.quote_plus(text)
-        quoted_voice = urllib.parse.quote_plus(config.tiktok_voice or "br_001")
+        quoted_voice = urllib.parse.quote_plus(voice_id)
         if "{text}" in template or "{voice}" in template:
             url = template.replace("{text}", quoted_text).replace("{voice}", quoted_voice)
             request = urllib.request.Request(url, headers={"User-Agent": "NocturneVoice/1.0"})
         else:
-            body = urllib.parse.urlencode({"text": text, "voice": config.tiktok_voice or "br_001"}).encode("utf-8")
+            body = urllib.parse.urlencode({"text": text, "voice": voice_id}).encode("utf-8")
             request = urllib.request.Request(template, data=body, headers={"User-Agent": "NocturneVoice/1.0"})
 
         wav_path = _temp_wav_path()
@@ -376,3 +377,7 @@ def cleanup_wav(path: str) -> None:
         Path(path).unlink(missing_ok=True)
     except Exception:
         pass
+
+
+def _choice_id(value: str) -> str:
+    return value.split(" - ", 1)[0].strip()
