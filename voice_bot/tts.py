@@ -154,7 +154,7 @@ class KokoroTTS(TTSProvider):
             chunks.append(np.asarray(audio, dtype=np.float32))
         if not chunks:
             raise TTSError("Kokoro nao gerou audio.")
-        sf.write(wav_path, np.concatenate(chunks), 24000)
+        sf.write(wav_path, np.concatenate(chunks), 24000, subtype="PCM_16")
         return wav_path
 
 
@@ -182,7 +182,9 @@ class BarkTTS(TTSProvider):
         kwargs = {}
         if config.bark_voice.strip():
             kwargs["history_prompt"] = config.bark_voice.strip()
-        write_wav(wav_path, SAMPLE_RATE, generate_audio(text, **kwargs))
+        audio = generate_audio(text, **kwargs)
+        audio_pcm = (np.clip(audio, -1.0, 1.0) * 32767).astype(np.int16)
+        write_wav(wav_path, SAMPLE_RATE, audio_pcm)
         return wav_path
 
     def _synthesize_with_python(self, text: str, config: TTSConfig, python_exe: str) -> str:
@@ -190,13 +192,16 @@ class BarkTTS(TTSProvider):
         script = _write_temp_script(
             [
                 "import os, sys",
+                "import numpy as np",
                 "if sys.argv[4] == '1': os.environ.setdefault('SUNO_USE_SMALL_MODELS', 'True')",
                 "from bark import SAMPLE_RATE, generate_audio, preload_models",
                 "from scipy.io.wavfile import write as write_wav",
                 "text, out, voice = sys.argv[1], sys.argv[2], sys.argv[3]",
                 "preload_models()",
                 "kwargs = {'history_prompt': voice} if voice else {}",
-                "write_wav(out, SAMPLE_RATE, generate_audio(text, **kwargs))",
+                "audio = generate_audio(text, **kwargs)",
+                "audio_pcm = (np.clip(audio, -1.0, 1.0) * 32767).astype(np.int16)",
+                "write_wav(out, SAMPLE_RATE, audio_pcm)",
             ]
         )
         try:
@@ -373,30 +378,27 @@ class F5TTS(TTSProvider):
 
 class EdgeTTSOnline(TTSProvider):
     def synthesize(self, text: str, config: TTSConfig) -> str:
+        try:
+            import edge_tts
+        except ImportError as exc:
+            raise TTSError("Instale o pacote `edge-tts` (pip install edge-tts>=7.0) para usar Edge TTS.") from exc
+
         mp3_path = tempfile.NamedTemporaryFile(prefix="edge_tts_", suffix=".mp3", delete=False)
         mp3_path.close()
         wav_path = _temp_wav_path()
         try:
-            subprocess.run(
-                [
-                    sys.executable,
-                    "-m",
-                    "edge_tts",
-                    "--voice",
-                    config.edge_voice or "pt-BR-FranciscaNeural",
-                    "--text",
-                    text,
-                    "--write-media",
-                    mp3_path.name,
-                ],
-                check=True,
-                capture_output=True,
-                text=True,
-                timeout=120,
-            )
+            communicate = edge_tts.Communicate(text, config.edge_voice or "pt-BR-FranciscaNeural")
+            import asyncio as _asyncio
+            _loop = _asyncio.new_event_loop()
+            try:
+                _loop.run_until_complete(communicate.save(mp3_path.name))
+            finally:
+                _loop.close()
             _convert_audio_to_wav(mp3_path.name, wav_path, config.ffmpeg_exe)
+        except TTSError:
+            raise
         except Exception as exc:
-            raise TTSError("Edge TTS requer `edge-tts` e `ffmpeg` disponiveis localmente.") from exc
+            raise TTSError(f"Edge TTS falhou: {exc}") from exc
         finally:
             cleanup_wav(mp3_path.name)
         return wav_path
@@ -546,18 +548,7 @@ def list_windows_voices() -> list[str]:
 
 
 def wav_to_discord_pcm(wav_path: str) -> bytes:
-    with wave.open(wav_path, "rb") as wav:
-        channels = wav.getnchannels()
-        sample_width = wav.getsampwidth()
-        sample_rate = wav.getframerate()
-        frames = wav.readframes(wav.getnframes())
-
-    if sample_width != 2:
-        raise TTSError("O TTS gerou WAV com formato inesperado. Esperado PCM 16-bit.")
-
-    samples = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
-    if channels > 1:
-        samples = samples.reshape(-1, channels).mean(axis=1)
+    samples, sample_rate = _read_wav_as_float32(wav_path)
 
     if sample_rate != TARGET_RATE:
         duration = samples.size / float(sample_rate)
@@ -568,6 +559,63 @@ def wav_to_discord_pcm(wav_path: str) -> bytes:
 
     stereo = np.column_stack((samples, samples))
     return np.clip(stereo * 32767.0, -32768, 32767).astype(np.int16).tobytes()
+
+
+def _read_wav_as_float32(wav_path: str) -> tuple:
+    """Return (samples_mono_float32, sample_rate). Tries wave module first, then soundfile."""
+    try:
+        return _wave_module_read(wav_path)
+    except Exception:
+        pass
+    try:
+        import soundfile as sf
+        data, rate = sf.read(wav_path, dtype="float32", always_2d=False)
+        if data.ndim > 1:
+            data = data.mean(axis=1)
+        return data.astype(np.float32), int(rate)
+    except ImportError:
+        pass
+    except Exception:
+        pass
+    raise TTSError(
+        "Nao foi possivel ler o WAV gerado. Instale soundfile ou verifique o provedor TTS selecionado."
+    )
+
+
+def _wave_module_read(wav_path: str) -> tuple:
+    """Read standard PCM WAV via Python wave module. Returns (samples_mono_float32, sample_rate)."""
+    with wave.open(wav_path, "rb") as wav_file:
+        channels = wav_file.getnchannels()
+        sample_width = wav_file.getsampwidth()
+        sample_rate = wav_file.getframerate()
+        frames = wav_file.readframes(wav_file.getnframes())
+
+    if sample_width == 1:
+        raw = np.frombuffer(frames, dtype=np.uint8).astype(np.float32)
+        samples = (raw - 128.0) / 128.0
+    elif sample_width == 2:
+        samples = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
+    elif sample_width == 3:
+        raw = np.frombuffer(frames, dtype=np.uint8).reshape(-1, 3)
+        i32 = (
+            raw[:, 0].astype(np.int32)
+            | (raw[:, 1].astype(np.int32) << 8)
+            | (raw[:, 2].astype(np.int32) << 16)
+        )
+        i32[i32 >= 0x800000] -= 0x1000000
+        samples = i32.astype(np.float32) / 8388608.0
+    elif sample_width == 4:
+        f32 = np.frombuffer(frames, dtype=np.float32)
+        if f32.size > 0 and bool(np.isfinite(f32).all()) and float(np.abs(f32).max()) <= 2.0:
+            samples = f32.copy()
+        else:
+            samples = np.frombuffer(frames, dtype=np.int32).astype(np.float32) / 2147483648.0
+    else:
+        raise TTSError(f"Formato WAV {sample_width * 8}-bit nao suportado.")
+
+    if channels > 1:
+        samples = samples.reshape(-1, channels).mean(axis=1)
+    return samples.astype(np.float32), int(sample_rate)
 
 
 def _temp_wav_path() -> str:

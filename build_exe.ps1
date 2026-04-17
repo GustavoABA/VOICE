@@ -14,13 +14,33 @@ Write-Host "[build] Usando Python: $python"
   --windowed `
   --name NocturneVoice `
   --collect-all vosk `
-  --collect-binaries sounddevice `
+  --collect-all sounddevice `
+  --collect-all nacl `
   --collect-submodules discord `
   --collect-submodules pyttsx3 `
+  --hidden-import=pyttsx3.drivers `
   --hidden-import=pyttsx3.drivers.sapi5 `
   --hidden-import=discord.ext.commands `
   --hidden-import=discord.voice_client `
   --hidden-import=discord.opus `
+  --hidden-import=discord.gateway `
+  --hidden-import=discord.http `
+  --hidden-import=discord.state `
+  --hidden-import=discord.player `
+  --hidden-import=discord.types `
+  --hidden-import=asyncio `
+  --hidden-import=wave `
+  --hidden-import=json `
+  --hidden-import=ctypes `
+  --hidden-import=ctypes.util `
+  --hidden-import=_cffi_backend `
+  --hidden-import=numpy `
+  --hidden-import=numpy.core `
+  --hidden-import=tkinter `
+  --hidden-import=tkinter.ttk `
+  --hidden-import=tkinter.messagebox `
+  --hidden-import=tkinter.filedialog `
+  --hidden-import=sounddevice `
   --exclude-module=TTS `
   --exclude-module=torch `
   --exclude-module=tensorflow `
@@ -39,3 +59,6 @@ Write-Host "  $root\dist\NocturneVoice\NocturneVoice.exe"
 Write-Host ""
 Write-Host "[build] Para distribuir, envie a pasta inteira:"
 Write-Host "  $root\dist\NocturneVoice"
+Write-Host ""
+Write-Host "[build] NOTA: Para voz Discord, o opus.dll deve estar acessivel."
+Write-Host "  Coloque libopus-0.dll ou opus.dll na pasta dist\NocturneVoice se necessario."

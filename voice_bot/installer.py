@@ -70,6 +70,12 @@ class InstallManager:
                 return values
 
     def pip_install(self, *packages: str) -> None:
+        if getattr(sys, "frozen", False):
+            raise RuntimeError(
+                "Instalacao de pacotes nao e suportada a partir do executavel.\n"
+                "Execute a instalacao a partir do codigo-fonte ou instale manualmente com:\n"
+                f"pip install {' '.join(packages)}"
+            )
         self._run_command([sys.executable, "-m", "pip", "install", *packages])
 
     def portable_pip_install(self, *packages: str) -> Path:

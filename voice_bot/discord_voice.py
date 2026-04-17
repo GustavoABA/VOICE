@@ -111,7 +111,7 @@ class DiscordVoiceBot:
         async def on_ready() -> None:
             self.status_queue.put(f"Bot online como {bot.user}")
             await self._join_target_voice(bot)
-            bot.loop.create_task(self._speech_worker(bot))
+            asyncio.create_task(self._speech_worker(bot))
 
         @bot.event
         async def on_voice_state_update(member, before, after) -> None:
@@ -165,6 +165,7 @@ class DiscordVoiceBot:
         return None
 
     async def _speech_worker(self, bot) -> None:
+        loop = asyncio.get_running_loop()
         while not self._stop_event.is_set() and self._text_queue is not None:
             text = await self._text_queue.get()
             if not await self._join_target_voice(bot):
@@ -182,7 +183,7 @@ class DiscordVoiceBot:
                 def after(error) -> None:
                     if error:
                         self.status_queue.put(f"Erro no playback: {error}")
-                    bot.loop.call_soon_threadsafe(done.set)
+                    loop.call_soon_threadsafe(done.set)
 
                 while voice_client.is_playing():
                     await asyncio.sleep(0.05)
