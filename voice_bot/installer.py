@@ -72,6 +72,26 @@ class InstallManager:
     def pip_install(self, *packages: str) -> None:
         self._run_command([sys.executable, "-m", "pip", "install", *packages])
 
+    def portable_pip_install(self, *packages: str) -> Path:
+        python_exe = self.install_portable_python310()
+        self._run_command([str(python_exe), "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"])
+        self._run_command([str(python_exe), "-m", "pip", "install", "--prefer-binary", *packages])
+        return python_exe
+
+    def install_portable_bark(self) -> Path:
+        self.events.put(InstallEvent("info", "Instalando Bark no Python 3.10 portatil..."))
+        return self.portable_pip_install("https://github.com/suno-ai/bark/archive/refs/heads/master.zip", "scipy", "soundfile")
+
+    def install_portable_melotts(self) -> Path:
+        self.events.put(InstallEvent("info", "Instalando MeloTTS no Python 3.10 portatil..."))
+        python_exe = self.portable_pip_install("https://github.com/myshell-ai/MeloTTS/archive/refs/heads/main.zip", "unidic")
+        self._run_command([str(python_exe), "-m", "unidic", "download"])
+        return python_exe
+
+    def install_portable_f5tts(self) -> Path:
+        self.events.put(InstallEvent("info", "Instalando F5-TTS no Python 3.10 portatil..."))
+        return self.portable_pip_install("f5-tts")
+
     def install_portable_coqui(self) -> Path:
         python_exe = self.install_portable_python310()
         self.events.put(InstallEvent("info", "Instalando Coqui TTS no Python 3.10 portatil..."))

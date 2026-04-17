@@ -96,6 +96,9 @@ O app agora tem uma area `Instalador` dentro da janela Tkinter. Quando um recurs
 - `Atualizar lista de vozes`: recarrega as vozes SAPI instaladas.
 - `Instalar Kokoro local`: instala `kokoro` e `soundfile` no Python atual.
 - `Instalar Python portatil + Coqui`: baixa um Python 3.10 portatil em `tools/python310/`, prepara `numpy/Cython` e instala `TTS==0.22.0` nele.
+- `Instalar Bark no Python 3.10`: instala Bark no Python portatil.
+- `Instalar MeloTTS no Python 3.10`: instala MeloTTS e baixa o dicionario `unidic`.
+- `Instalar F5-TTS Python 3.10`: instala o pacote `f5-tts` no Python portatil.
 - `Baixar Piper`: abre a pagina de releases do Piper; depois selecione `piper.exe` e o modelo `.onnx`.
 - `Baixar eSpeak NG`: abre a pagina de releases; depois selecione `espeak-ng.exe`.
 
@@ -105,20 +108,36 @@ Os downloads/instalacoes rodam em background e aparecem no log `Instalador`. Iss
 
 - `Windows SAPI (local)`: usa as vozes instaladas no Windows. E o mais simples.
 - `Kokoro (local opcional)`: requer instalar `kokoro` e `soundfile`, alem de baixar/cachear modelos locais.
-- `Piper (local opcional)`: requer o executavel Piper e um modelo `.onnx`.
-- `Coqui TTS (local opcional)`: requer o pacote `TTS` e um modelo local/instalado.
+- `Bark (local opcional)`: usa o Bark/Suno local. Pesado; prefira modelos pequenos e GPU quando possivel.
+- `MeloTTS (local opcional)`: usa MeloTTS local. Suporte a PT-BR depende dos modelos disponiveis.
+- `Piper TTS (local opcional)`: requer o executavel Piper e um modelo `.onnx`.
+- `Coqui TTS / XTTS v2 (local opcional)`: requer o pacote `TTS`. Para XTTS v2, informe `Speaker WAV` e idioma `pt`.
+- `F5-TTS (local opcional)`: requer `f5-tts`, audio de referencia e texto correspondente.
 - `eSpeak NG (local opcional)`: requer o executavel `espeak-ng`.
 - `Edge TTS (online opcional)`: vozes neurais Microsoft. Requer internet, pacote `edge-tts` e `ffmpeg`.
-- `TikTok API TTS (online opcional)`: exige uma API/URL externa que retorne WAV. Mostra IDs de vozes estilo TikTok.
+- `TikTok API URL (online opcional)`: chama uma API local/remota compativel com WAV, MP3 ou JSON base64.
+- `TikTok Agus direto (online nao oficial)`: implementa chamada direta no estilo `agusibrahim/tiktok-tts-api`.
+- `TikTok Steve direto (online nao oficial)`: implementa chamada direta no estilo `Steve0929/tiktok-tts` e exige `sessionid`.
+- `NaturalReader Free (endpoint externo)`: NaturalReader Free nao tem API publica oficial; aceita endpoint proprio que retorne audio.
 - `OpenAI TTS (online opcional)`: requer pacote `openai`, API key e internet.
 
-Para o requisito de rodar tudo localmente, use `Windows SAPI`, `Kokoro`, `Piper`, `Coqui` ou `eSpeak` com modelos/instalacoes locais.
+Para o requisito de rodar tudo localmente, use `Windows SAPI`, `Kokoro`, `Bark`, `MeloTTS`, `Piper TTS`, `Coqui/XTTS`, `F5-TTS` ou `eSpeak` com modelos/instalacoes locais.
 
 Quando trocar o `Provedor TTS`, o app mostra somente as opcoes relevantes daquele provedor. Para Windows SAPI, por exemplo, ele mostra as vozes instaladas e um atalho para baixar vozes nas configuracoes do Windows.
 
 ## Texto manual para a call
 
-Depois que o bot estiver conectado na call, use o campo `Texto para falar` e clique em `Enviar para call`. O bot fala exatamente o texto digitado usando o provedor TTS selecionado.
+Depois que o bot estiver conectado na call, use o campo grande `Texto manual para a call`, perto do console, e clique em `Enviar texto para call`. Tambem funciona com `Ctrl+Enter`.
+
+## TikTok TTS
+
+As opcoes TikTok sao online e nao oficiais. O TikTok nao oferece API publica oficial de TTS para esse uso.
+
+- `TikTok API URL`: use se voce rodar uma API compativel localmente, por exemplo uma API no formato `/tts` do projeto `agusibrahim/tiktok-tts-api`.
+- `TikTok Agus direto`: chama o endpoint privado usado por implementacoes estilo `agusibrahim/tiktok-tts-api`.
+- `TikTok Steve direto`: chama o endpoint privado usado por `Steve0929/tiktok-tts` e precisa do cookie `sessionid` do TikTok Web.
+
+Essas opcoes podem parar de funcionar se o TikTok mudar ou bloquear os endpoints. Para estabilidade em call, prefira provedores locais.
 
 ## Atualizacao pelo GitHub
 
@@ -154,9 +173,16 @@ Coqui TTS nao instala em Pythons muito novos. Por isso o app instala um Python 3
 tools\python310\python.exe
 ```
 
-O app principal continua rodando no seu `.venv`, mas o provedor `Coqui TTS` chama esse Python 3.10 por subprocess para gerar o WAV. Use o botao `Instalar Python portatil + Coqui` e aguarde o log terminar. O campo `Python 3.10` sera preenchido automaticamente.
+O app principal continua rodando no seu `.venv`, mas provedores pesados como `Coqui/XTTS`, `Bark` e `MeloTTS` podem chamar esse Python 3.10 por subprocess para gerar o WAV. Use o botao de instalacao do provedor e aguarde o log terminar. O campo `Python 3.10` sera preenchido automaticamente.
 
 Se o Coqui falhar com `No module named 'numpy'`, use a versao atual do app e clique de novo em `Instalar Python portatil + Coqui`. O instalador agora instala `numpy` e `Cython` antes de montar o pacote `TTS`.
+
+Para usar XTTS v2:
+
+1. Escolha `Coqui TTS / XTTS v2`.
+2. Use o modelo `tts_models/multilingual/multi-dataset/xtts_v2`.
+3. Em `Idioma`, coloque `pt`.
+4. Em `Speaker WAV`, selecione um WAV curto e limpo da voz de referencia.
 
 ## Gerar executavel
 

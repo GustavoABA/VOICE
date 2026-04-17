@@ -25,6 +25,10 @@ Write-Host "[build] Usando Python: $python"
   --exclude-module=torch `
   --exclude-module=tensorflow `
   --exclude-module=kokoro `
+  --exclude-module=bark `
+  --exclude-module=melo `
+  --exclude-module=f5_tts `
+  --exclude-module=scipy `
   --exclude-module=openai `
   --exclude-module=edge_tts `
   "$root\run.py"

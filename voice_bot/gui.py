@@ -23,12 +23,21 @@ WINDOWS_VOICE_HINTS = (
 KOKORO_VOICES = ("pf_dora", "pm_alex", "pf_julia", "pm_santa", "af_heart", "am_adam")
 ESPEAK_VOICES = ("pt-br", "pt", "pt+f2", "pt+m3")
 COQUI_EXAMPLES = ("tts_models/pt/cv/vits", "tts_models/multilingual/multi-dataset/xtts_v2")
+BARK_VOICES = ("v2/pt_speaker_0", "v2/pt_speaker_1", "v2/en_speaker_6", "v2/en_speaker_9")
+MELO_LANGUAGES = ("EN", "ES", "FR", "ZH", "JP", "KR")
+MELO_SPEAKERS = ("EN-US", "EN-BR", "ES", "FR", "ZH", "JP", "KR")
+F5_MODELS = ("F5TTS_v1_Base", "F5TTS_Base", "E2TTS_Base")
 EDGE_VOICES = ("pt-BR-FranciscaNeural", "pt-BR-AntonioNeural", "pt-PT-RaquelNeural", "pt-PT-DuarteNeural")
 TIKTOK_VOICES = (
     "br_001 - BR feminina 1",
     "br_003 - BR feminina 2",
     "br_004 - BR masculina 1",
     "br_005 - BR masculina 2",
+    "bp_female_ivete - Ivete Sangalo",
+    "bp_female_ludmilla - Ludmilla",
+    "pt_female_lhays - Lhays Macedo",
+    "pt_female_laizza - Laizza",
+    "pt_male_bueno - Galvao Bueno",
     "en_us_001 - US feminina",
     "en_us_006 - US masculina 1",
     "en_us_007 - US masculina 2",
@@ -50,6 +59,11 @@ TIKTOK_VOICES = (
     "en_us_rocket - Rocket",
 )
 OPENAI_VOICES = ("alloy", "ash", "ballad", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer")
+PROVIDER_ALIASES = {
+    "Piper (local opcional)": "Piper TTS (local opcional)",
+    "Coqui TTS (local opcional)": "Coqui TTS / XTTS v2 (local opcional)",
+    "TikTok API TTS (online opcional)": "TikTok API URL (online opcional)",
+}
 
 
 class DiscordVoiceTTSApp(tk.Tk):
@@ -110,7 +124,8 @@ class DiscordVoiceTTSApp(tk.Tk):
         self.vosk_model_var = tk.StringVar(value=self.config.get("vosk_model", ""))
         self.input_device_var = tk.StringVar(value=self.config.get("input_device", ""))
         self.block_size_var = tk.StringVar(value=str(self.config.get("block_size", "4000")))
-        self.tts_provider_var = tk.StringVar(value=self.config.get("tts_provider", "Windows SAPI (local)"))
+        provider = PROVIDER_ALIASES.get(self.config.get("tts_provider", ""), self.config.get("tts_provider", "Windows SAPI (local)"))
+        self.tts_provider_var = tk.StringVar(value=provider if provider in TTSManager.PROVIDERS else "Windows SAPI (local)")
         self.tts_voice_var = tk.StringVar(value=self.config.get("tts_voice", ""))
         self.tts_speed_var = tk.DoubleVar(value=float(self.config.get("tts_speed", 1.0) or 1.0))
         self.piper_exe_var = tk.StringVar(value=self.config.get("piper_exe", "piper"))
@@ -118,12 +133,26 @@ class DiscordVoiceTTSApp(tk.Tk):
         self.espeak_exe_var = tk.StringVar(value=self.config.get("espeak_exe", "espeak-ng"))
         self.coqui_model_var = tk.StringVar(value=self.config.get("coqui_model", ""))
         self.coqui_python_var = tk.StringVar(value=self.config.get("coqui_python", ""))
+        self.coqui_language_var = tk.StringVar(value=self.config.get("coqui_language", "pt"))
+        self.coqui_speaker_wav_var = tk.StringVar(value=self.config.get("coqui_speaker_wav", ""))
         self.kokoro_voice_var = tk.StringVar(value=self.config.get("kokoro_voice", "pf_dora"))
+        self.bark_voice_var = tk.StringVar(value=self.config.get("bark_voice", "v2/pt_speaker_0"))
+        self.bark_small_var = tk.BooleanVar(value=bool(self.config.get("bark_small", True)))
+        self.melo_language_var = tk.StringVar(value=self.config.get("melo_language", "EN"))
+        self.melo_speaker_var = tk.StringVar(value=self.config.get("melo_speaker", "EN-US"))
+        self.melo_device_var = tk.StringVar(value=self.config.get("melo_device", "auto"))
+        self.f5_exe_var = tk.StringVar(value=self.config.get("f5_exe", "f5-tts_infer-cli"))
+        self.f5_model_var = tk.StringVar(value=self.config.get("f5_model", "F5TTS_v1_Base"))
+        self.f5_ref_audio_var = tk.StringVar(value=self.config.get("f5_ref_audio", ""))
+        self.f5_ref_text_var = tk.StringVar(value=self.config.get("f5_ref_text", ""))
         self.openai_api_key_var = tk.StringVar(value=self.config.get("openai_api_key", ""))
         self.edge_voice_var = tk.StringVar(value=self.config.get("edge_voice", "pt-BR-FranciscaNeural"))
         self.ffmpeg_exe_var = tk.StringVar(value=self.config.get("ffmpeg_exe", "ffmpeg"))
         self.tiktok_voice_var = tk.StringVar(value=self.config.get("tiktok_voice", "br_001"))
         self.tiktok_api_url_var = tk.StringVar(value=self.config.get("tiktok_api_url", ""))
+        self.tiktok_session_id_var = tk.StringVar(value=self.config.get("tiktok_session_id", ""))
+        self.tiktok_endpoint_var = tk.StringVar(value=self.config.get("tiktok_endpoint", "https://api16-normal-v6.tiktokv.com/media/api/text/speech/invoke"))
+        self.naturalreader_api_url_var = tk.StringVar(value=self.config.get("naturalreader_api_url", ""))
         self.openai_voice_var = tk.StringVar(value=self.config.get("openai_voice", "alloy"))
         self.manual_text_var = tk.StringVar(value=self.config.get("manual_text", ""))
         self.github_repo_var = tk.StringVar(value=GITHUB_REPO)
@@ -152,12 +181,26 @@ class DiscordVoiceTTSApp(tk.Tk):
             self.espeak_exe_var,
             self.coqui_model_var,
             self.coqui_python_var,
+            self.coqui_language_var,
+            self.coqui_speaker_wav_var,
             self.kokoro_voice_var,
+            self.bark_voice_var,
+            self.bark_small_var,
+            self.melo_language_var,
+            self.melo_speaker_var,
+            self.melo_device_var,
+            self.f5_exe_var,
+            self.f5_model_var,
+            self.f5_ref_audio_var,
+            self.f5_ref_text_var,
             self.openai_api_key_var,
             self.edge_voice_var,
             self.ffmpeg_exe_var,
             self.tiktok_voice_var,
             self.tiktok_api_url_var,
+            self.tiktok_session_id_var,
+            self.tiktok_endpoint_var,
+            self.naturalreader_api_url_var,
             self.openai_voice_var,
             self.manual_text_var,
             self.auto_update_var,
@@ -193,6 +236,7 @@ class DiscordVoiceTTSApp(tk.Tk):
 
         self._build_discord_panel(left)
         self._build_audio_panel(left)
+        self._build_manual_speech_panel(left)
         self._build_tts_panel(right)
         self._build_runtime_panel(right)
         self._build_install_log(left)
@@ -232,6 +276,24 @@ class DiscordVoiceTTSApp(tk.Tk):
         row.pack(fill="x", pady=6)
         ttk.Label(row, text="Buffer STT", style="Panel.TLabel", width=15).pack(side="left")
         ttk.Combobox(row, textvariable=self.block_size_var, values=("2000", "4000", "8000"), width=10, state="readonly").pack(side="left")
+
+    def _build_manual_speech_panel(self, parent: ttk.Frame) -> None:
+        ttk.Label(parent, text="Texto manual para a call", style="Section.TLabel").pack(anchor="w", pady=(16, 0))
+        ttk.Label(parent, text="Digite aqui e pressione Ctrl+Enter ou clique em Enviar. Fica perto do console para acompanhar erros/status.", style="Panel.TLabel", wraplength=430).pack(anchor="w", pady=(4, 6))
+        self.manual_text_widget = tk.Text(
+            parent,
+            height=4,
+            bg="#0d0a0f",
+            fg="#f5eee7",
+            insertbackground="#f5eee7",
+            relief="flat",
+            wrap="word",
+        )
+        self.manual_text_widget.insert("1.0", self.manual_text_var.get())
+        self.manual_text_widget.pack(fill="x", pady=(0, 6))
+        self.manual_text_widget.bind("<KeyRelease>", lambda _event: self._sync_manual_text_from_widget())
+        self.manual_text_widget.bind("<Control-Return>", lambda _event: self.speak_manual_text())
+        ttk.Button(parent, text="Enviar texto para call", style="Accent.TButton", command=self.speak_manual_text).pack(anchor="e", pady=(0, 4))
 
     def _build_tts_panel(self, parent: ttk.Frame) -> None:
         ttk.Label(parent, text="Motor TTS", style="Section.TLabel").pack(anchor="w")
@@ -278,8 +340,23 @@ class DiscordVoiceTTSApp(tk.Tk):
         ttk.Button(kokoro, text="Instalar Kokoro local", command=self.install_kokoro).pack(anchor="w", pady=(6, 0))
         ttk.Label(kokoro, text="Instala kokoro e soundfile no Python atual. Modelos podem ser baixados/cacheados pelo pacote.", style="Inset.TLabel", wraplength=390).pack(anchor="w", pady=(6, 0))
 
+        bark = ttk.Frame(self.options_host, style="Inset.TFrame")
+        self.provider_frames["Bark (local opcional)"] = bark
+        self._provider_combo(bark, "Voz Bark", self.bark_voice_var, BARK_VOICES)
+        ttk.Checkbutton(bark, text="Usar modelos pequenos", variable=self.bark_small_var).pack(anchor="w", pady=(4, 0))
+        ttk.Button(bark, text="Instalar Bark no Python 3.10", command=self.install_bark).pack(anchor="w", pady=(6, 0))
+        ttk.Label(bark, text="Bark e pesado. O app usa o Python 3.10 portatil do campo Coqui/Python para rodar fora do exe.", style="Inset.TLabel", wraplength=390).pack(anchor="w", pady=(6, 0))
+
+        melo = ttk.Frame(self.options_host, style="Inset.TFrame")
+        self.provider_frames["MeloTTS (local opcional)"] = melo
+        self._provider_combo(melo, "Idioma", self.melo_language_var, MELO_LANGUAGES)
+        self._provider_combo(melo, "Speaker", self.melo_speaker_var, MELO_SPEAKERS)
+        self._provider_entry(melo, "Device", self.melo_device_var)
+        ttk.Button(melo, text="Instalar MeloTTS no Python 3.10", command=self.install_melotts).pack(anchor="w", pady=(6, 0))
+        ttk.Label(melo, text="MeloTTS e local e rapido, mas o suporte a PT-BR depende dos modelos instalados.", style="Inset.TLabel", wraplength=390).pack(anchor="w", pady=(6, 0))
+
         piper = ttk.Frame(self.options_host, style="Inset.TFrame")
-        self.provider_frames["Piper (local opcional)"] = piper
+        self.provider_frames["Piper TTS (local opcional)"] = piper
         self._provider_entry(piper, "Piper exe", self.piper_exe_var)
         self._provider_entry(piper, "Modelo .onnx", self.piper_model_var)
         actions = ttk.Frame(piper, style="Inset.TFrame")
@@ -290,15 +367,30 @@ class DiscordVoiceTTSApp(tk.Tk):
         ttk.Label(piper, text="Use um modelo Piper PT-BR local .onnx. Nao usa API.", style="Inset.TLabel", wraplength=390).pack(anchor="w", pady=(6, 0))
 
         coqui = ttk.Frame(self.options_host, style="Inset.TFrame")
-        self.provider_frames["Coqui TTS (local opcional)"] = coqui
+        self.provider_frames["Coqui TTS / XTTS v2 (local opcional)"] = coqui
         self._provider_combo(coqui, "Exemplos", self.coqui_model_var, COQUI_EXAMPLES)
         self._provider_entry(coqui, "Modelo", self.coqui_model_var)
         self._provider_entry(coqui, "Python 3.10", self.coqui_python_var)
+        self._provider_entry(coqui, "Idioma", self.coqui_language_var)
+        self._provider_entry(coqui, "Speaker WAV", self.coqui_speaker_wav_var)
         actions = ttk.Frame(coqui, style="Inset.TFrame")
         actions.pack(fill="x", pady=(6, 0))
         ttk.Button(actions, text="Instalar Python portatil + Coqui", command=self.install_coqui).pack(side="left")
         ttk.Button(actions, text="Selecionar python.exe", command=self.select_coqui_python).pack(side="left", padx=(8, 0))
-        ttk.Label(coqui, text="Coqui nao suporta Python muito novo. Este bot usa um Python 3.10 portatil so para Coqui.", style="Inset.TLabel", wraplength=390).pack(anchor="w", pady=(6, 0))
+        ttk.Button(actions, text="Selecionar speaker WAV", command=self.select_coqui_speaker_wav).pack(side="left", padx=(8, 0))
+        ttk.Label(coqui, text="Para XTTS v2 use modelo `tts_models/multilingual/multi-dataset/xtts_v2`, idioma `pt` e um WAV curto de referencia.", style="Inset.TLabel", wraplength=390).pack(anchor="w", pady=(6, 0))
+
+        f5 = ttk.Frame(self.options_host, style="Inset.TFrame")
+        self.provider_frames["F5-TTS (local opcional)"] = f5
+        self._provider_entry(f5, "CLI exe", self.f5_exe_var)
+        self._provider_combo(f5, "Modelo", self.f5_model_var, F5_MODELS)
+        self._provider_entry(f5, "Ref audio", self.f5_ref_audio_var)
+        self._provider_entry(f5, "Ref text", self.f5_ref_text_var)
+        actions = ttk.Frame(f5, style="Inset.TFrame")
+        actions.pack(fill="x", pady=(6, 0))
+        ttk.Button(actions, text="Instalar F5-TTS Python 3.10", command=self.install_f5tts).pack(side="left")
+        ttk.Button(actions, text="Selecionar ref WAV", command=self.select_f5_ref_audio).pack(side="left", padx=(8, 0))
+        ttk.Label(f5, text="F5-TTS precisa de audio de referencia e texto correspondente. Requer PyTorch e pode ser lento sem GPU.", style="Inset.TLabel", wraplength=390).pack(anchor="w", pady=(6, 0))
 
         espeak = ttk.Frame(self.options_host, style="Inset.TFrame")
         self.provider_frames["eSpeak NG (local opcional)"] = espeak
@@ -321,15 +413,36 @@ class DiscordVoiceTTSApp(tk.Tk):
         ttk.Label(edge, text="Vozes neural da Microsoft. Usa internet e requer ffmpeg para converter audio.", style="Inset.TLabel", wraplength=390).pack(anchor="w", pady=(6, 0))
 
         tiktok = ttk.Frame(self.options_host, style="Inset.TFrame")
-        self.provider_frames["TikTok API TTS (online opcional)"] = tiktok
+        self.provider_frames["TikTok API URL (online opcional)"] = tiktok
         self._provider_combo(tiktok, "Voz TikTok", self.tiktok_voice_var, TIKTOK_VOICES)
         self._provider_entry(tiktok, "API URL", self.tiktok_api_url_var)
         ttk.Label(
             tiktok,
-            text="IDs comuns de vozes gratuitas usadas por APIs TikTok TTS. A disponibilidade depende da API escolhida. Placeholders aceitos: {text} e {voice}.",
+            text="Compatível com APIs estilo agusibrahim/tiktok-tts-api em /tts. Aceita WAV, MP3 ou JSON com audio_base64.",
             style="Inset.TLabel",
             wraplength=390,
         ).pack(anchor="w", pady=(6, 0))
+
+        tiktok_agus = ttk.Frame(self.options_host, style="Inset.TFrame")
+        self.provider_frames["TikTok Agus direto (online nao oficial)"] = tiktok_agus
+        self._provider_combo(tiktok_agus, "Voz TikTok", self.tiktok_voice_var, TIKTOK_VOICES)
+        self._provider_entry(tiktok_agus, "sessionid", self.tiktok_session_id_var)
+        self._provider_entry(tiktok_agus, "ffmpeg", self.ffmpeg_exe_var)
+        ttk.Label(tiktok_agus, text="Usa o mesmo formato interno do projeto agusibrahim. Nao e API oficial e pode parar.", style="Inset.TLabel", wraplength=390).pack(anchor="w", pady=(6, 0))
+
+        tiktok_steve = ttk.Frame(self.options_host, style="Inset.TFrame")
+        self.provider_frames["TikTok Steve direto (online nao oficial)"] = tiktok_steve
+        self._provider_combo(tiktok_steve, "Voz TikTok", self.tiktok_voice_var, TIKTOK_VOICES)
+        self._provider_entry(tiktok_steve, "sessionid", self.tiktok_session_id_var)
+        self._provider_entry(tiktok_steve, "Endpoint", self.tiktok_endpoint_var)
+        self._provider_entry(tiktok_steve, "ffmpeg", self.ffmpeg_exe_var)
+        ttk.Label(tiktok_steve, text="Implementa o fluxo Steve0929/tiktok-tts. Exige cookie sessionid do TikTok Web.", style="Inset.TLabel", wraplength=390).pack(anchor="w", pady=(6, 0))
+
+        natural = ttk.Frame(self.options_host, style="Inset.TFrame")
+        self.provider_frames["NaturalReader Free (endpoint externo)"] = natural
+        self._provider_entry(natural, "API URL", self.naturalreader_api_url_var)
+        self._provider_entry(natural, "ffmpeg", self.ffmpeg_exe_var)
+        ttk.Label(natural, text="NaturalReader Free nao tem API publica oficial. Este campo aceita um endpoint proprio que retorne WAV/MP3/base64.", style="Inset.TLabel", wraplength=390).pack(anchor="w", pady=(6, 0))
 
         openai = ttk.Frame(self.options_host, style="Inset.TFrame")
         self.provider_frames["OpenAI TTS (online opcional)"] = openai
@@ -343,14 +456,6 @@ class DiscordVoiceTTSApp(tk.Tk):
         controls.pack(fill="x", pady=(8, 12))
         self.start_button = ttk.Button(controls, text="Iniciar bot e transcricao", style="Accent.TButton", command=self.toggle_running)
         self.start_button.pack(side="left")
-
-        manual = ttk.Frame(parent, style="Panel.TFrame")
-        manual.pack(fill="x", pady=(0, 12))
-        ttk.Label(manual, text="Texto para falar", style="Panel.TLabel", width=15).pack(side="left")
-        manual_entry = ttk.Entry(manual, textvariable=self.manual_text_var)
-        manual_entry.pack(side="left", fill="x", expand=True)
-        manual_entry.bind("<Return>", lambda _event: self.speak_manual_text())
-        ttk.Button(manual, text="Enviar para call", command=self.speak_manual_text).pack(side="left", padx=(8, 0))
 
         ttk.Label(parent, text="Status bot", style="Panel.TLabel").pack(anchor="w")
         ttk.Label(parent, textvariable=self.bot_status_var, style="Status.TLabel").pack(anchor="w", pady=(2, 8))
@@ -423,11 +528,17 @@ class DiscordVoiceTTSApp(tk.Tk):
             {
                 "Windows SAPI (local)": "Mais simples e local. Para PT-BR, instale vozes extras do Windows se aparecer apenas ingles.",
                 "Kokoro (local opcional)": "Qualidade melhor quando instalado localmente. Sem API, mas pode baixar/cachear modelos.",
-                "Piper (local opcional)": "Excelente para local com modelos .onnx. Informe executavel e modelo.",
-                "Coqui TTS (local opcional)": "Pesado e sensivel a versao do Python. Use o botao para instalar Python 3.10 portatil + Coqui.",
+                "Bark (local opcional)": "Modelo generativo local pesado. Use Python 3.10 portatil e modelos pequenos para reduzir custo.",
+                "MeloTTS (local opcional)": "TTS local por MyShell. Rapido em CPU para idiomas suportados.",
+                "Piper TTS (local opcional)": "Excelente para local com modelos .onnx. Informe executavel e modelo.",
+                "Coqui TTS / XTTS v2 (local opcional)": "Para XTTS v2, informe speaker WAV e idioma `pt`. Usa Python 3.10 portatil.",
+                "F5-TTS (local opcional)": "Clonagem/zero-shot local com audio de referencia. Pesado, melhor com GPU.",
                 "eSpeak NG (local opcional)": "Muito leve e local, mas com voz mais robotica.",
                 "Edge TTS (online opcional)": "Vozes online da Microsoft. Boa qualidade, requer edge-tts e ffmpeg.",
-                "TikTok API TTS (online opcional)": "Requer uma API externa/URL propria. Nao e local.",
+                "TikTok API URL (online opcional)": "Chama uma API local/remota compativel com retorno WAV, MP3 ou base64.",
+                "TikTok Agus direto (online nao oficial)": "Usa endpoint privado do TikTok no estilo agusibrahim. Instavel e online.",
+                "TikTok Steve direto (online nao oficial)": "Usa endpoint privado do TikTok no estilo Steve0929 e exige sessionid.",
+                "NaturalReader Free (endpoint externo)": "NaturalReader Free nao oferece API publica; use endpoint proprio se tiver.",
                 "OpenAI TTS (online opcional)": "Requer API key e internet. Nao e local.",
             }.get(provider, "")
         )
@@ -462,6 +573,28 @@ class DiscordVoiceTTSApp(tk.Tk):
 
     def install_kokoro(self) -> None:
         self.installer.run("Kokoro local", lambda: self.installer.pip_install("kokoro>=0.9.4", "soundfile>=0.12"))
+
+    def install_bark(self) -> None:
+        def action() -> None:
+            python_exe = self.installer.install_portable_bark()
+            self.after(0, lambda: (self.coqui_python_var.set(str(python_exe)), self.save_persistent_config()))
+
+        self.installer.run("Bark no Python 3.10 portatil", action)
+
+    def install_melotts(self) -> None:
+        def action() -> None:
+            python_exe = self.installer.install_portable_melotts()
+            self.after(0, lambda: (self.coqui_python_var.set(str(python_exe)), self.save_persistent_config()))
+
+        self.installer.run("MeloTTS no Python 3.10 portatil", action)
+
+    def install_f5tts(self) -> None:
+        def action() -> None:
+            python_exe = self.installer.install_portable_f5tts()
+            scripts = python_exe.parent / "Scripts" / "f5-tts_infer-cli.exe"
+            self.after(0, lambda: (self.coqui_python_var.set(str(python_exe)), self.f5_exe_var.set(str(scripts)), self.save_persistent_config()))
+
+        self.installer.run("F5-TTS no Python 3.10 portatil", action)
 
     def install_edge_tts(self) -> None:
         self.installer.run("Edge TTS", lambda: self.installer.pip_install("edge-tts>=7.0"))
@@ -507,6 +640,18 @@ class DiscordVoiceTTSApp(tk.Tk):
             self.coqui_python_var.set(path)
             self.save_persistent_config()
 
+    def select_coqui_speaker_wav(self) -> None:
+        path = filedialog.askopenfilename(title="Selecione WAV de referencia para XTTS", filetypes=(("WAV", "*.wav"), ("Todos", "*.*")))
+        if path:
+            self.coqui_speaker_wav_var.set(path)
+            self.save_persistent_config()
+
+    def select_f5_ref_audio(self) -> None:
+        path = filedialog.askopenfilename(title="Selecione WAV de referencia para F5-TTS", filetypes=(("WAV", "*.wav"), ("Todos", "*.*")))
+        if path:
+            self.f5_ref_audio_var.set(path)
+            self.save_persistent_config()
+
     def current_tts_config(self) -> TTSConfig:
         return TTSConfig(
             provider=self.tts_provider_var.get(),
@@ -516,11 +661,25 @@ class DiscordVoiceTTSApp(tk.Tk):
             espeak_exe=self.espeak_exe_var.get(),
             coqui_model=self.coqui_model_var.get(),
             coqui_python=self.coqui_python_var.get(),
+            coqui_language=self.coqui_language_var.get(),
+            coqui_speaker_wav=self.coqui_speaker_wav_var.get(),
             kokoro_voice=self.kokoro_voice_var.get(),
+            bark_voice=self.bark_voice_var.get(),
+            bark_small=self.bark_small_var.get(),
+            melo_language=self.melo_language_var.get(),
+            melo_speaker=self.melo_speaker_var.get(),
+            melo_device=self.melo_device_var.get(),
+            f5_exe=self.f5_exe_var.get(),
+            f5_model=self.f5_model_var.get(),
+            f5_ref_audio=self.f5_ref_audio_var.get(),
+            f5_ref_text=self.f5_ref_text_var.get(),
             edge_voice=self.edge_voice_var.get(),
             ffmpeg_exe=self.ffmpeg_exe_var.get(),
             tiktok_voice=self.tiktok_voice_var.get(),
             tiktok_api_url=self.tiktok_api_url_var.get(),
+            tiktok_session_id=self.tiktok_session_id_var.get(),
+            tiktok_endpoint=self.tiktok_endpoint_var.get(),
+            naturalreader_api_url=self.naturalreader_api_url_var.get(),
             openai_api_key=self.openai_api_key_var.get(),
             openai_voice=self.openai_voice_var.get(),
             speed=float(self.tts_speed_var.get()),
@@ -574,10 +733,15 @@ class DiscordVoiceTTSApp(tk.Tk):
         self.bot_status_var.set("Bot desligado")
         self.stt_status_var.set("Transcricao desligada")
 
+    def _sync_manual_text_from_widget(self) -> None:
+        if hasattr(self, "manual_text_widget"):
+            self.manual_text_var.set(self.manual_text_widget.get("1.0", "end-1c"))
+
     def speak_manual_text(self) -> None:
         if not self.discord_bot.running:
             messagebox.showwarning("Falar na call", "Inicie o bot antes de enviar texto para a call.")
             return
+        self._sync_manual_text_from_widget()
         text = self.manual_text_var.get().strip()
         if not text:
             messagebox.showwarning("Falar na call", "Digite uma frase para o bot falar.")
@@ -640,11 +804,25 @@ class DiscordVoiceTTSApp(tk.Tk):
                 "espeak_exe": self.espeak_exe_var.get(),
                 "coqui_model": self.coqui_model_var.get(),
                 "coqui_python": self.coqui_python_var.get(),
+                "coqui_language": self.coqui_language_var.get(),
+                "coqui_speaker_wav": self.coqui_speaker_wav_var.get(),
                 "kokoro_voice": self.kokoro_voice_var.get(),
+                "bark_voice": self.bark_voice_var.get(),
+                "bark_small": self.bark_small_var.get(),
+                "melo_language": self.melo_language_var.get(),
+                "melo_speaker": self.melo_speaker_var.get(),
+                "melo_device": self.melo_device_var.get(),
+                "f5_exe": self.f5_exe_var.get(),
+                "f5_model": self.f5_model_var.get(),
+                "f5_ref_audio": self.f5_ref_audio_var.get(),
+                "f5_ref_text": self.f5_ref_text_var.get(),
                 "edge_voice": self.edge_voice_var.get(),
                 "ffmpeg_exe": self.ffmpeg_exe_var.get(),
                 "tiktok_voice": self.tiktok_voice_var.get(),
                 "tiktok_api_url": self.tiktok_api_url_var.get(),
+                "tiktok_session_id": self.tiktok_session_id_var.get(),
+                "tiktok_endpoint": self.tiktok_endpoint_var.get(),
+                "naturalreader_api_url": self.naturalreader_api_url_var.get(),
                 "openai_api_key": self.openai_api_key_var.get(),
                 "openai_voice": self.openai_voice_var.get(),
                 "manual_text": self.manual_text_var.get(),

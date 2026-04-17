@@ -10,4 +10,5 @@ Pillow>=10.0
 # soundfile>=0.12
 # edge-tts>=7.0
 # openai>=1.0
-# Coqui TTS e instalado pela GUI em tools/python310, porque exige Python compativel.
+# Coqui/Bark/MeloTTS/F5-TTS sao opcionais e instalados pela GUI em tools/python310,
+# porque exigem Python/PyTorch compativeis e ficariam grandes demais no executavel.
