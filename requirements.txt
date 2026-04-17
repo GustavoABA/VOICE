@@ -1,0 +1,11 @@
+numpy>=1.26
+sounddevice>=0.4.7
+vosk>=0.3.45
+discord.py[voice]>=2.4
+pyttsx3>=2.90
+Pillow>=10.0
+
+# Provedores TTS locais opcionais:
+# kokoro>=0.9.4
+# soundfile>=0.12
+# Coqui TTS e instalado pela GUI em tools/python310, porque exige Python compativel.

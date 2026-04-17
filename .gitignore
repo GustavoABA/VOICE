@@ -1,0 +1,25 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Runtime downloads and generated local tools.
+tools/
+models/
+
+# Local secrets/configuration.
+.env
+*.token
+*.key
+
+# Packaging outputs.
+build/
+dist/
+*.spec
+
+# OS/editor noise.
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
