@@ -100,7 +100,12 @@ class InstallManager:
 
     def install_portable_rvc(self) -> Path:
         self.events.put(InstallEvent("info", "Instalando rvc-python no Python 3.10 portatil..."))
-        return self.portable_pip_install("rvc-python")
+        python_exe = self.install_portable_python310()
+        self._run_command([str(python_exe), "-m", "pip", "install", "setuptools", "wheel"])
+        # rvc-python requires omegaconf==2.0.6 which has invalid metadata rejected by pip>=24.1
+        self._run_command([str(python_exe), "-m", "pip", "install", "pip<24.1"])
+        self._run_command([str(python_exe), "-m", "pip", "install", "--prefer-binary", "rvc-python"])
+        return python_exe
 
     def install_portable_coqui(self) -> Path:
         python_exe = self.install_portable_python310()
