@@ -51,6 +51,8 @@ Write-Host "[build] Usando Python: $python"
   --exclude-module=scipy `
   --exclude-module=openai `
   --exclude-module=edge_tts `
+  --exclude-module=rvc_python `
+  --exclude-module=faiss `
   "$root\run.py"
 
 Write-Host ""

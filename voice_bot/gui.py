@@ -146,6 +146,11 @@ class DiscordVoiceTTSApp(tk.Tk):
         self.f5_ref_audio_var = tk.StringVar(value=self.config.get("f5_ref_audio", ""))
         self.f5_ref_text_var = tk.StringVar(value=self.config.get("f5_ref_text", ""))
         self.openai_api_key_var = tk.StringVar(value=self.config.get("openai_api_key", ""))
+        self.rvc_model_var = tk.StringVar(value=self.config.get("rvc_model", ""))
+        self.rvc_index_var = tk.StringVar(value=self.config.get("rvc_index", ""))
+        self.rvc_pitch_var = tk.StringVar(value=str(self.config.get("rvc_pitch", 0)))
+        self.rvc_device_var = tk.StringVar(value=self.config.get("rvc_device", "cpu"))
+        self.rvc_index_rate_var = tk.DoubleVar(value=float(self.config.get("rvc_index_rate", 0.33)))
         self.edge_voice_var = tk.StringVar(value=self.config.get("edge_voice", "pt-BR-FranciscaNeural"))
         self.ffmpeg_exe_var = tk.StringVar(value=self.config.get("ffmpeg_exe", "ffmpeg"))
         self.tiktok_voice_var = tk.StringVar(value=self.config.get("tiktok_voice", "br_001"))
@@ -194,6 +199,11 @@ class DiscordVoiceTTSApp(tk.Tk):
             self.f5_ref_audio_var,
             self.f5_ref_text_var,
             self.openai_api_key_var,
+            self.rvc_model_var,
+            self.rvc_index_var,
+            self.rvc_pitch_var,
+            self.rvc_device_var,
+            self.rvc_index_rate_var,
             self.edge_voice_var,
             self.ffmpeg_exe_var,
             self.tiktok_voice_var,
@@ -333,6 +343,54 @@ class DiscordVoiceTTSApp(tk.Tk):
         ).pack(anchor="w", pady=(6, 0))
         ttk.Button(windows, text="Abrir configuracoes de fala", command=lambda: webbrowser.open("ms-settings:speech")).pack(anchor="w", pady=(6, 0))
         ttk.Button(windows, text="Atualizar lista de vozes", command=self.refresh_windows_voices).pack(anchor="w", pady=(6, 0))
+
+        rvc = ttk.Frame(self.options_host, style="Inset.TFrame")
+        self.provider_frames["RVC (Voice Conversion local)"] = rvc
+        self._provider_entry(rvc, "Modelo (.pth)", self.rvc_model_var)
+        self._provider_entry(rvc, "Index (.index)", self.rvc_index_var)
+        rvc_row1 = ttk.Frame(rvc, style="Inset.TFrame")
+        rvc_row1.pack(fill="x", pady=(6, 0))
+        ttk.Button(rvc_row1, text="Selecionar .pth", command=self.select_rvc_model).pack(side="left")
+        ttk.Button(rvc_row1, text="Selecionar .index", command=self.select_rvc_index).pack(side="left", padx=(8, 0))
+        rvc_row2 = ttk.Frame(rvc, style="Inset.TFrame")
+        rvc_row2.pack(fill="x", pady=(6, 0))
+        ttk.Label(rvc_row2, text="Pitch (semitons)", style="Inset.TLabel", width=16).pack(side="left")
+        ttk.Combobox(
+            rvc_row2,
+            textvariable=self.rvc_pitch_var,
+            values=[str(i) for i in range(-12, 13)],
+            width=6,
+            state="readonly",
+        ).pack(side="left")
+        rvc_row3 = ttk.Frame(rvc, style="Inset.TFrame")
+        rvc_row3.pack(fill="x", pady=(4, 0))
+        ttk.Label(rvc_row3, text="Device", style="Inset.TLabel", width=16).pack(side="left")
+        ttk.Combobox(
+            rvc_row3,
+            textvariable=self.rvc_device_var,
+            values=("cpu", "cuda:0", "cuda:1", "cuda"),
+            width=10,
+            state="readonly",
+        ).pack(side="left")
+        rvc_row4 = ttk.Frame(rvc, style="Inset.TFrame")
+        rvc_row4.pack(fill="x", pady=(4, 0))
+        ttk.Label(rvc_row4, text="Index Rate", style="Inset.TLabel", width=16).pack(side="left")
+        ttk.Scale(rvc_row4, from_=0.0, to=1.0, variable=self.rvc_index_rate_var, orient="horizontal").pack(side="left", fill="x", expand=True)
+        self._provider_entry(rvc, "Python 3.10", self.coqui_python_var)
+        rvc_actions = ttk.Frame(rvc, style="Inset.TFrame")
+        rvc_actions.pack(fill="x", pady=(6, 0))
+        ttk.Button(rvc_actions, text="Instalar RVC no Python 3.10", command=self.install_rvc).pack(side="left")
+        ttk.Button(rvc_actions, text="Selecionar python.exe", command=self.select_coqui_python).pack(side="left", padx=(8, 0))
+        ttk.Label(
+            rvc,
+            text=(
+                "Converte voz gerada pelo Windows SAPI para a voz do modelo .pth.\n"
+                "Requer PyTorch — use Python 3.10 portatil. O campo Python 3.10 e "
+                "compartilhado com Coqui/Bark/MeloTTS."
+            ),
+            style="Inset.TLabel",
+            wraplength=390,
+        ).pack(anchor="w", pady=(6, 0))
 
         kokoro = ttk.Frame(self.options_host, style="Inset.TFrame")
         self.provider_frames["Kokoro (local opcional)"] = kokoro
@@ -527,6 +585,7 @@ class DiscordVoiceTTSApp(tk.Tk):
         self.provider_help_var.set(
             {
                 "Windows SAPI (local)": "Mais simples e local. Para PT-BR, instale vozes extras do Windows se aparecer apenas ingles.",
+                "RVC (Voice Conversion local)": "Converte qualquer voz para o modelo .pth usando RVC. Selecione o .pth e opcionalmente o .index. Requer Python 3.10 portatil com rvc-python instalado.",
                 "Kokoro (local opcional)": "Qualidade melhor quando instalado localmente. Sem API, mas pode baixar/cachear modelos.",
                 "Bark (local opcional)": "Modelo generativo local pesado. Use Python 3.10 portatil e modelos pequenos para reduzir custo.",
                 "MeloTTS (local opcional)": "TTS local por MyShell. Rapido em CPU para idiomas suportados.",
@@ -646,6 +705,31 @@ class DiscordVoiceTTSApp(tk.Tk):
             self.coqui_speaker_wav_var.set(path)
             self.save_persistent_config()
 
+    def select_rvc_model(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Selecione o modelo RVC (.pth)",
+            filetypes=(("Modelo PyTorch", "*.pth"), ("Todos", "*.*")),
+        )
+        if path:
+            self.rvc_model_var.set(path)
+            self.save_persistent_config()
+
+    def select_rvc_index(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Selecione o indice FAISS (.index)",
+            filetypes=(("FAISS Index", "*.index"), ("Todos", "*.*")),
+        )
+        if path:
+            self.rvc_index_var.set(path)
+            self.save_persistent_config()
+
+    def install_rvc(self) -> None:
+        def action() -> None:
+            python_exe = self.installer.install_portable_rvc()
+            self.after(0, lambda: (self.coqui_python_var.set(str(python_exe)), self.save_persistent_config()))
+
+        self.installer.run("RVC no Python 3.10 portatil", action)
+
     def select_f5_ref_audio(self) -> None:
         path = filedialog.askopenfilename(title="Selecione WAV de referencia para F5-TTS", filetypes=(("WAV", "*.wav"), ("Todos", "*.*")))
         if path:
@@ -682,6 +766,11 @@ class DiscordVoiceTTSApp(tk.Tk):
             naturalreader_api_url=self.naturalreader_api_url_var.get(),
             openai_api_key=self.openai_api_key_var.get(),
             openai_voice=self.openai_voice_var.get(),
+            rvc_model=self.rvc_model_var.get(),
+            rvc_index=self.rvc_index_var.get(),
+            rvc_pitch=int(self.rvc_pitch_var.get() or 0),
+            rvc_device=self.rvc_device_var.get(),
+            rvc_index_rate=float(self.rvc_index_rate_var.get()),
             speed=float(self.tts_speed_var.get()),
         )
 
@@ -825,6 +914,11 @@ class DiscordVoiceTTSApp(tk.Tk):
                 "naturalreader_api_url": self.naturalreader_api_url_var.get(),
                 "openai_api_key": self.openai_api_key_var.get(),
                 "openai_voice": self.openai_voice_var.get(),
+                "rvc_model": self.rvc_model_var.get(),
+                "rvc_index": self.rvc_index_var.get(),
+                "rvc_pitch": int(self.rvc_pitch_var.get() or 0),
+                "rvc_device": self.rvc_device_var.get(),
+                "rvc_index_rate": float(self.rvc_index_rate_var.get()),
                 "manual_text": self.manual_text_var.get(),
                 "github_repo": GITHUB_REPO,
                 "auto_update": self.auto_update_var.get(),

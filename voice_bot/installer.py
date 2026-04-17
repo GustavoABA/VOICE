@@ -98,6 +98,10 @@ class InstallManager:
         self.events.put(InstallEvent("info", "Instalando F5-TTS no Python 3.10 portatil..."))
         return self.portable_pip_install("f5-tts")
 
+    def install_portable_rvc(self) -> Path:
+        self.events.put(InstallEvent("info", "Instalando rvc-python no Python 3.10 portatil..."))
+        return self.portable_pip_install("rvc-python")
+
     def install_portable_coqui(self) -> Path:
         python_exe = self.install_portable_python310()
         self.events.put(InstallEvent("info", "Instalando Coqui TTS no Python 3.10 portatil..."))

@@ -55,6 +55,11 @@ class TTSConfig:
     naturalreader_api_url: str = ""
     openai_api_key: str = ""
     openai_voice: str = "alloy"
+    rvc_model: str = ""
+    rvc_index: str = ""
+    rvc_pitch: int = 0
+    rvc_device: str = "cpu"
+    rvc_index_rate: float = 0.33
     speed: float = 1.0
 
 
@@ -494,9 +499,109 @@ class OpenAIOnlineTTS(TTSProvider):
         return wav_path
 
 
+class RVCTTS(TTSProvider):
+    """RVC (Retrieval-based Voice Conversion) — converte audio base para a voz do modelo .pth."""
+
+    def __init__(self) -> None:
+        self._rvc = None
+        self._model_path = ""
+        self._index_path = ""
+
+    def synthesize(self, text: str, config: TTSConfig) -> str:
+        model_path = config.rvc_model.strip()
+        if not model_path:
+            raise TTSError("Selecione o arquivo .pth do modelo RVC no campo 'Modelo RVC (.pth)'.")
+
+        base_wav = self._generate_base_audio(text, config)
+
+        portable_python = _valid_external_python(config.coqui_python)
+        if portable_python:
+            return self._convert_with_python(base_wav, config, portable_python)
+
+        try:
+            from rvc_python.infer import RVCInference
+        except ImportError as exc:
+            cleanup_wav(base_wav)
+            raise TTSError(
+                "rvc-python nao esta instalado. Use o botao 'Instalar RVC no Python 3.10' na GUI."
+            ) from exc
+
+        output_wav = _temp_wav_path()
+        try:
+            index_path = config.rvc_index.strip() or None
+            key = (model_path, index_path or "")
+            if self._rvc is None or (self._model_path, self._index_path) != key:
+                device = config.rvc_device.strip() or "cpu"
+                self._rvc = RVCInference(device=device)
+                self._rvc.load_model(model_path, index_path=index_path)
+                self._model_path, self._index_path = key
+            self._rvc.infer_file(
+                base_wav,
+                output_wav,
+                f0_up_key=int(config.rvc_pitch),
+                index_rate=float(config.rvc_index_rate),
+            )
+        except TTSError:
+            cleanup_wav(output_wav)
+            raise
+        except Exception as exc:
+            cleanup_wav(output_wav)
+            raise TTSError(f"RVC falhou na conversao de voz: {exc}") from exc
+        finally:
+            cleanup_wav(base_wav)
+
+        return output_wav
+
+    def _generate_base_audio(self, text: str, config: TTSConfig) -> str:
+        """Gera audio base via Windows SAPI para ser convertido pelo RVC."""
+        try:
+            sapi_config = TTSConfig(
+                provider="Windows SAPI (local)",
+                voice=config.voice,
+                speed=config.speed,
+            )
+            return WindowsSapiTTS().synthesize(text, sapi_config)
+        except Exception as exc:
+            raise TTSError(f"RVC: falha ao gerar audio base (Windows SAPI): {exc}") from exc
+
+    def _convert_with_python(self, base_wav: str, config: TTSConfig, python_exe: str) -> str:
+        output_wav = _temp_wav_path()
+        script = _write_temp_script(
+            [
+                "import sys",
+                "from rvc_python.infer import RVCInference",
+                "input_p, output_p, model_p, index_p, device, pitch, idx_rate = sys.argv[1:8]",
+                "rvc = RVCInference(device=device or 'cpu')",
+                "rvc.load_model(model_p, index_path=index_p if index_p else None)",
+                "rvc.infer_file(input_p, output_p, f0_up_key=int(pitch), index_rate=float(idx_rate))",
+            ]
+        )
+        try:
+            _run_checked(
+                [
+                    python_exe,
+                    str(script),
+                    base_wav,
+                    output_wav,
+                    config.rvc_model.strip(),
+                    config.rvc_index.strip() or "",
+                    config.rvc_device.strip() or "cpu",
+                    str(int(config.rvc_pitch)),
+                    str(float(config.rvc_index_rate)),
+                ],
+                timeout=300,
+                error_prefix="RVC portatil falhou",
+            )
+        finally:
+            cleanup_wav(str(script))
+            cleanup_wav(base_wav)
+        return output_wav
+
+
 class TTSManager:
     PROVIDERS = (
         "Windows SAPI (local)",
+        "RVC (Voice Conversion local)",
         "Kokoro (local opcional)",
         "Bark (local opcional)",
         "MeloTTS (local opcional)",
@@ -515,6 +620,7 @@ class TTSManager:
     def __init__(self) -> None:
         self._providers: dict[str, TTSProvider] = {
             "Windows SAPI (local)": WindowsSapiTTS(),
+            "RVC (Voice Conversion local)": RVCTTS(),
             "Kokoro (local opcional)": KokoroTTS(),
             "Bark (local opcional)": BarkTTS(),
             "MeloTTS (local opcional)": MeloTTS(),
