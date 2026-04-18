@@ -15,6 +15,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "input_device": "",
     "block_size": "4000",
     "manual_text": "",
+    "cache_enabled": True,
+    "local_monitor_enabled": False,
+    "local_output_device": "",
+    "vb_cable_enabled": False,
     "tts_provider": "pyttsx3",
     "tts_voice": "",
     "tts_speed": 1.0,
@@ -56,6 +60,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "rvc_device": "cpu",
     "rvc_index_rate": 0.33,
     "popup_hotkey": "F8",
+    "global_hotkey_enabled": True,
     "github_repo": GITHUB_REPO,
 }
 

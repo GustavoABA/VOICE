@@ -14,6 +14,7 @@ from .paths import models_dir, tools_dir
 
 VOSK_PT_URL = "https://alphacephei.com/vosk/models/vosk-model-small-pt-0.3.zip"
 PYTHON310_URL = "https://www.python.org/ftp/python/3.10.11/python-3.10.11-embed-amd64.zip"
+PYTHON311_URL = "https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip"
 GET_PIP_URL = "https://bootstrap.pypa.io/get-pip.py"
 
 
@@ -27,6 +28,14 @@ def python310_dir() -> Path:
 
 def python310_exe() -> Path:
     return python310_dir() / "python.exe"
+
+
+def python311_dir() -> Path:
+    return tools_dir() / "python311"
+
+
+def python311_exe() -> Path:
+    return python311_dir() / "python.exe"
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,12 +94,12 @@ class InstallManager:
         return python_exe
 
     def install_edge_tts(self) -> None:
-        self.events.put(InstallEvent("info", "Instalando Edge TTS no Python atual..."))
-        self.pip_install("edge-tts>=7.0")
+        self.events.put(InstallEvent("info", "Instalando Edge TTS, FFmpeg embutido e hotkey no Python atual..."))
+        self.pip_install("edge-tts>=7.0", "imageio-ffmpeg>=0.5", "keyboard>=0.13.5")
 
     def install_gtts(self) -> None:
-        self.events.put(InstallEvent("info", "Instalando gTTS no Python atual..."))
-        self.pip_install("gTTS>=2.5")
+        self.events.put(InstallEvent("info", "Instalando gTTS, FFmpeg embutido e hotkey no Python atual..."))
+        self.pip_install("gTTS>=2.5", "imageio-ffmpeg>=0.5", "keyboard>=0.13.5")
 
     def install_portable_f5tts(self) -> Path:
         self.events.put(InstallEvent("info", "Instalando F5-TTS no Python 3.10 portatil..."))
@@ -148,24 +157,29 @@ class InstallManager:
         return python_exe
 
     def install_portable_python310(self) -> Path:
+        return self._install_embedded_python("3.10", PYTHON310_URL, python310_dir(), python310_exe())
+
+    def install_portable_python311(self) -> Path:
+        return self._install_embedded_python("3.11", PYTHON311_URL, python311_dir(), python311_exe())
+
+    def _install_embedded_python(self, label: str, url: str, target_dir: Path, exe: Path) -> Path:
         runtime_tools = tools_dir()
-        exe = python310_exe()
         if exe.exists():
-            self.events.put(InstallEvent("info", f"Python 3.10 portatil ja existe: {exe}"))
-            self._ensure_embedded_python_site_enabled()
-            self._ensure_portable_pip()
+            self.events.put(InstallEvent("info", f"Python {label} portatil ja existe: {exe}"))
+            self._ensure_embedded_python_site_enabled(target_dir)
+            self._ensure_portable_pip(exe)
             return exe
 
-        zip_path = runtime_tools / "python-3.10.11-embed-amd64.zip"
-        self.events.put(InstallEvent("info", "Baixando Python 3.10 portatil..."))
-        urllib.request.urlretrieve(PYTHON310_URL, zip_path)
-        python310_dir().mkdir(parents=True, exist_ok=True)
-        self.events.put(InstallEvent("info", "Extraindo Python 3.10 portatil..."))
+        zip_path = runtime_tools / Path(url).name
+        self.events.put(InstallEvent("info", f"Baixando Python {label} portatil..."))
+        urllib.request.urlretrieve(url, zip_path)
+        target_dir.mkdir(parents=True, exist_ok=True)
+        self.events.put(InstallEvent("info", f"Extraindo Python {label} portatil..."))
         with zipfile.ZipFile(zip_path, "r") as archive:
-            archive.extractall(python310_dir())
+            archive.extractall(target_dir)
 
-        self._ensure_embedded_python_site_enabled()
-        self._ensure_portable_pip()
+        self._ensure_embedded_python_site_enabled(target_dir)
+        self._ensure_portable_pip(exe)
         return exe
 
     def download_vosk_pt(self) -> Path:
@@ -182,8 +196,9 @@ class InstallManager:
             archive.extractall(models_dir())
         return model_dir
 
-    def _ensure_embedded_python_site_enabled(self) -> None:
-        pth_files = list(python310_dir().glob("python*._pth"))
+    def _ensure_embedded_python_site_enabled(self, target_dir: Path | None = None) -> None:
+        target = target_dir or python310_dir()
+        pth_files = list(target.glob("python*._pth"))
         if not pth_files:
             return
 
@@ -194,10 +209,11 @@ class InstallManager:
             pth.write_text(content, encoding="utf-8")
             self.events.put(InstallEvent("info", "Habilitado import site no Python portatil."))
 
-    def _ensure_portable_pip(self) -> None:
+    def _ensure_portable_pip(self, exe: Path | None = None) -> None:
+        python_exe = exe or python310_exe()
         try:
             subprocess.run(
-                [str(python310_exe()), "-m", "pip", "--version"],
+                [str(python_exe), "-m", "pip", "--version"],
                 check=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
@@ -213,7 +229,7 @@ class InstallManager:
         self.events.put(InstallEvent("info", "Baixando get-pip.py..."))
         urllib.request.urlretrieve(GET_PIP_URL, get_pip)
         self.events.put(InstallEvent("info", "Instalando pip no Python portatil..."))
-        self._run_command([str(python310_exe()), str(get_pip)])
+        self._run_command([str(python_exe), str(get_pip)])
 
     def _run_command(self, command: list[str]) -> None:
         self.events.put(InstallEvent("info", "Executando: " + " ".join(command)))

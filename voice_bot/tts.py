@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import urllib.parse
 import urllib.request
 import wave
@@ -109,6 +112,10 @@ class TTSConfig:
     provider: str
     voice: str = ""
     speed: float = 1.0
+    cache_enabled: bool = True
+    local_monitor_enabled: bool = False
+    local_output_device: str = ""
+    vb_cable_enabled: bool = False
     timeout_seconds: int = 240
     ffmpeg_exe: str = "ffmpeg"
     python_exe: str = ""
@@ -557,7 +564,7 @@ class TTSManager:
         if provider is None:
             raise TTSError(f"Provedor TTS desconhecido: {config.provider}")
         self._emit(f"TTS: gerando audio com {config.provider}")
-        wav_path = provider.synthesize(text, config, self._emit)
+        wav_path = self._synthesize_cached(provider, text, config)
         if not config.rvc_enabled:
             return wav_path
 
@@ -572,6 +579,26 @@ class TTSManager:
     def _emit(self, message: str) -> None:
         if self._log:
             self._log(message)
+
+    def _synthesize_cached(self, provider: TTSProvider, text: str, config: TTSConfig) -> str:
+        if not config.cache_enabled or config.rvc_enabled:
+            return provider.synthesize(text, config, self._emit)
+
+        cache_path = _cache_path(text, config)
+        if cache_path.exists() and cache_path.stat().st_size > 0:
+            out = _temp_wav_path()
+            shutil.copy2(cache_path, out)
+            self._emit("TTS: audio carregado do cache")
+            return out
+
+        wav_path = provider.synthesize(text, config, self._emit)
+        try:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(wav_path, cache_path)
+            self._emit("TTS: audio salvo no cache")
+        except Exception as exc:
+            self._emit(f"TTS: nao foi possivel salvar cache: {exc}")
+        return wav_path
 
 
 class RVCConverter:
@@ -661,7 +688,7 @@ def compatibility_message(provider: str, python_exe: str = "") -> str:
     if provider in heavy and version[:2] not in {(3, 10), (3, 11)}:
         return f"Python {label} pode ser incompativel com {provider}. Recomendado: Python 3.10.11 portatil."
     if provider in {"Edge TTS", "gTTS"}:
-        return f"Python {label}. {provider} e simples, online, e precisa de ffmpeg para converter MP3 em WAV."
+        return f"Python {label}. {provider} e simples/online. O app usa imageio-ffmpeg se nao achar ffmpeg.exe."
     if provider in {"pyttsx3", "Piper TTS", "eSpeak NG", "Festival", "Mimic 3", "MaryTTS", "RHVoice"}:
         return f"Python {label} OK. Este provedor depende principalmente do executavel/pacote configurado."
     return f"Python {label}. Configure endpoint ou comando externo conforme o provedor."
@@ -683,11 +710,104 @@ def wav_to_discord_pcm(wav_path: str) -> bytes:
     return np.clip(stereo * 32767.0, -32768, 32767).astype(np.int16).tobytes()
 
 
+def play_wav_monitor(wav_path: str, config: TTSConfig, log: LogCallback | None = None) -> None:
+    if not config.local_monitor_enabled and not config.vb_cable_enabled:
+        return
+    try:
+        import sounddevice as sd
+        import soundfile as sf
+    except Exception as exc:
+        if log:
+            log(f"Monitor local requer sounddevice/soundfile: {exc}")
+        return
+
+    targets: list[int] = []
+    if config.local_monitor_enabled:
+        output = _device_label_to_index(config.local_output_device)
+        if output is not None:
+            targets.append(output)
+    if config.vb_cable_enabled:
+        vb = _find_vb_cable_output()
+        if vb is not None and vb not in targets:
+            targets.append(vb)
+        elif vb is None and log:
+            log("VB-CABLE nao encontrado: procure por dispositivo 'CABLE Input'.")
+    if not targets:
+        return
+
+    try:
+        data, sample_rate = sf.read(wav_path, dtype="float32", always_2d=False)
+    except Exception as exc:
+        if log:
+            log(f"Nao foi possivel ler WAV para monitor local: {exc}")
+        return
+
+    for device in targets:
+        def play_target(target: int) -> None:
+            try:
+                output = data
+                if getattr(output, "ndim", 1) == 1:
+                    output = np.column_stack((output, output))
+                with sd.OutputStream(samplerate=sample_rate, channels=output.shape[1], device=target) as stream:
+                    stream.write(output)
+                if log:
+                    log(f"Monitor local tocou no dispositivo {target}")
+            except Exception as exc:
+                if log:
+                    log(f"Falha no monitor local dispositivo {target}: {exc}")
+
+        threading.Thread(target=play_target, args=(device,), daemon=True).start()
+
+
 def cleanup_wav(path: str) -> None:
     try:
         Path(path).unlink(missing_ok=True)
     except Exception:
         pass
+
+
+def _cache_path(text: str, config: TTSConfig) -> Path:
+    key_data = json.dumps(
+        {
+            "text": text,
+            "provider": config.provider,
+            "voice": config.voice,
+            "speed": config.speed,
+            "edge_voice": config.edge_voice,
+            "gtts_lang": config.gtts_lang,
+            "kokoro_voice": config.kokoro_voice,
+            "coqui_model": config.coqui_model,
+            "espeak_voice": config.espeak_voice,
+            "piper_model": config.piper_model,
+        },
+        sort_keys=True,
+        ensure_ascii=False,
+    )
+    digest = hashlib.md5(key_data.encode("utf-8")).hexdigest()
+    return Path.cwd() / "cache_audio" / f"{digest}.wav"
+
+
+def _device_label_to_index(value: str) -> int | None:
+    if not value.strip():
+        return None
+    try:
+        return int(value.split(":", 1)[0].strip())
+    except Exception:
+        return None
+
+
+def _find_vb_cable_output() -> int | None:
+    try:
+        import sounddevice as sd
+
+        for index, raw in enumerate(sd.query_devices()):
+            name = str(raw.get("name", ""))
+            channels = int(raw.get("max_output_channels", 0))
+            if channels > 0 and "CABLE Input" in name:
+                return index
+    except Exception:
+        return None
+    return None
 
 
 def _coqui_model_for(config: TTSConfig) -> str:
@@ -879,9 +999,10 @@ def _audio_bytes_to_wav(data: bytes, content_type: str, ffmpeg_exe: str, timeout
 
 
 def _convert_audio_to_wav(source_path: str, wav_path: str, ffmpeg_exe: str, timeout: int) -> None:
+    resolved_ffmpeg = _resolve_ffmpeg_exe(ffmpeg_exe)
     _run_checked(
         [
-            ffmpeg_exe or "ffmpeg",
+            resolved_ffmpeg,
             "-y",
             "-i",
             source_path,
@@ -893,6 +1014,31 @@ def _convert_audio_to_wav(source_path: str, wav_path: str, ffmpeg_exe: str, time
         ],
         timeout=timeout,
         error_prefix="FFmpeg falhou ao converter audio",
+    )
+
+
+def _resolve_ffmpeg_exe(ffmpeg_exe: str) -> str:
+    configured = (ffmpeg_exe or "").strip()
+    candidates: list[str] = []
+    if configured and configured.lower() != "ffmpeg":
+        candidates.append(configured)
+    path_ffmpeg = shutil.which(configured or "ffmpeg")
+    if path_ffmpeg:
+        return path_ffmpeg
+    try:
+        import imageio_ffmpeg
+
+        imageio_path = imageio_ffmpeg.get_ffmpeg_exe()
+        if imageio_path:
+            return imageio_path
+    except Exception:
+        pass
+    for candidate in candidates:
+        if Path(candidate).exists():
+            return candidate
+    raise TTSError(
+        "FFmpeg nao encontrado. Clique em Ferramentas > Instalar TTS atual para instalar `imageio-ffmpeg`, "
+        "ou selecione manualmente um ffmpeg.exe no campo ffmpeg."
     )
 
 

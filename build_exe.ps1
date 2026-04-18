@@ -15,6 +15,8 @@ Write-Host "[build] Usando Python: $python"
   --name NocturneVoice `
   --collect-all vosk `
   --collect-all sounddevice `
+  --collect-all soundfile `
+  --collect-all imageio_ffmpeg `
   --collect-all nacl `
   --collect-submodules edge_tts `
   --collect-submodules gtts `
@@ -44,7 +46,10 @@ Write-Host "[build] Usando Python: $python"
   --hidden-import=tkinter.filedialog `
   --hidden-import=edge_tts `
   --hidden-import=gtts `
+  --hidden-import=imageio_ffmpeg `
+  --hidden-import=keyboard `
   --hidden-import=sounddevice `
+  --hidden-import=soundfile `
   --exclude-module=TTS `
   --exclude-module=torch `
   --exclude-module=tensorflow `

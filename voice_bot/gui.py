@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import shlex
+import subprocess
 import sys
+import threading
 import tkinter as tk
 import webbrowser
 from pathlib import Path
@@ -11,7 +14,7 @@ from . import audio_devices
 from .config import load_config, save_config
 from .constants import APP_NAME
 from .discord_voice import DiscordVoiceBot, DiscordVoiceConfig
-from .installer import InstallEvent, InstallManager, python310_exe
+from .installer import InstallEvent, InstallManager, python310_exe, python311_exe
 from .transcriber import TranscriberConfig, VoskMicTranscriber
 from .tts import (
     COQUI_MODEL_CHOICES,
@@ -58,12 +61,14 @@ class DiscordVoiceTTSApp(tk.Tk):
         self.discord_bot = DiscordVoiceBot()
         self.installer = InstallManager()
         self.input_map: dict[str, int] = {}
+        self.output_map: dict[str, int] = {}
         self._running = False
         self._quitting = False
         self._save_after_id: str | None = None
-        self._active_page = "Conexao"
+        self._active_page = "Painel"
         self._waiting_hotkey = False
         self._hotkey_bind_id: str | None = None
+        self._global_hotkey_id = None
 
         self._configure_style()
         self._build_variables()
@@ -112,6 +117,10 @@ class DiscordVoiceTTSApp(tk.Tk):
         self.input_device_var = tk.StringVar(value=cfg.get("input_device", ""))
         self.block_size_var = tk.StringVar(value=str(cfg.get("block_size", "4000")))
         self.manual_text_var = tk.StringVar(value=cfg.get("manual_text", ""))
+        self.cache_enabled_var = tk.BooleanVar(value=bool(cfg.get("cache_enabled", True)))
+        self.local_monitor_enabled_var = tk.BooleanVar(value=bool(cfg.get("local_monitor_enabled", False)))
+        self.local_output_device_var = tk.StringVar(value=cfg.get("local_output_device", ""))
+        self.vb_cable_enabled_var = tk.BooleanVar(value=bool(cfg.get("vb_cable_enabled", False)))
         self.tts_provider_var = tk.StringVar(value=provider if provider in PROVIDERS else "pyttsx3")
         self.tts_voice_var = tk.StringVar(value=cfg.get("tts_voice", ""))
         self.tts_speed_var = tk.DoubleVar(value=_float(cfg.get("tts_speed", 1.0), 1.0))
@@ -159,6 +168,8 @@ class DiscordVoiceTTSApp(tk.Tk):
         self.compatibility_var = tk.StringVar()
         self.install_status_var = tk.StringVar(value="Ferramentas prontas")
         self.popup_hotkey_var = tk.StringVar(value=cfg.get("popup_hotkey", "F8"))
+        self.global_hotkey_enabled_var = tk.BooleanVar(value=bool(cfg.get("global_hotkey_enabled", True)))
+        self.python_console_command_var = tk.StringVar(value="-m pip install ")
 
     def _bind_auto_save(self) -> None:
         for variable in self._all_config_vars():
@@ -166,6 +177,7 @@ class DiscordVoiceTTSApp(tk.Tk):
         self.tts_provider_var.trace_add("write", lambda *_args: self.update_provider_panel())
         self.python_exe_var.trace_add("write", lambda *_args: self.update_compatibility())
         self.popup_hotkey_var.trace_add("write", lambda *_args: self._rebind_popup_hotkey())
+        self.global_hotkey_enabled_var.trace_add("write", lambda *_args: self._rebind_popup_hotkey())
 
     def _all_config_vars(self) -> tuple[tk.Variable, ...]:
         return (
@@ -176,6 +188,10 @@ class DiscordVoiceTTSApp(tk.Tk):
             self.input_device_var,
             self.block_size_var,
             self.manual_text_var,
+            self.cache_enabled_var,
+            self.local_monitor_enabled_var,
+            self.local_output_device_var,
+            self.vb_cable_enabled_var,
             self.tts_provider_var,
             self.tts_voice_var,
             self.tts_speed_var,
@@ -217,6 +233,7 @@ class DiscordVoiceTTSApp(tk.Tk):
             self.rvc_device_var,
             self.rvc_index_rate_var,
             self.popup_hotkey_var,
+            self.global_hotkey_enabled_var,
         )
 
     def _build_ui(self) -> None:
@@ -235,7 +252,7 @@ class DiscordVoiceTTSApp(tk.Tk):
         sidebar = ttk.Frame(body, style="Panel.TFrame", padding=10)
         sidebar.pack(side="left", fill="y", padx=(0, 12))
 
-        for title in ("Conexao", "TTS", "RVC", "Ferramentas", "Logs"):
+        for title in ("Painel", "Vozes", "Audio", "RVC", "Python", "Logs"):
             ttk.Button(sidebar, text=title, style="Nav.TButton", command=lambda name=title: self.show_page(name)).pack(fill="x", pady=4)
         ttk.Separator(sidebar, orient="horizontal").pack(fill="x", pady=10)
         ttk.Button(sidebar, text="Popup texto", style="Nav.TButton", command=self.open_quick_text_popup).pack(fill="x", pady=4)
@@ -247,29 +264,33 @@ class DiscordVoiceTTSApp(tk.Tk):
 
         self.connection_tab = ttk.Frame(self.notebook, padding=14)
         self.tts_tab = ttk.Frame(self.notebook, padding=14)
+        self.audio_tab = ttk.Frame(self.notebook, padding=14)
         self.rvc_tab = ttk.Frame(self.notebook, padding=14)
         self.tools_tab = ttk.Frame(self.notebook, padding=14)
         self.logs_tab = ttk.Frame(self.notebook, padding=14)
 
-        self.notebook.add(self.connection_tab, text="Conexao")
-        self.notebook.add(self.tts_tab, text="TTS")
+        self.notebook.add(self.connection_tab, text="Painel")
+        self.notebook.add(self.tts_tab, text="Vozes")
+        self.notebook.add(self.audio_tab, text="Audio")
         self.notebook.add(self.rvc_tab, text="RVC")
-        self.notebook.add(self.tools_tab, text="Ferramentas")
+        self.notebook.add(self.tools_tab, text="Python")
         self.notebook.add(self.logs_tab, text="Logs")
 
         self._build_connection_tab()
         self._build_tts_tab()
+        self._build_audio_tab()
         self._build_rvc_tab()
         self._build_tools_tab()
         self._build_logs_tab()
-        self.show_page("Conexao")
+        self.show_page("Painel")
 
     def show_page(self, name: str) -> None:
         pages = {
-            "Conexao": self.connection_tab,
-            "TTS": self.tts_tab,
+            "Painel": self.connection_tab,
+            "Vozes": self.tts_tab,
+            "Audio": self.audio_tab,
             "RVC": self.rvc_tab,
-            "Ferramentas": self.tools_tab,
+            "Python": self.tools_tab,
             "Logs": self.logs_tab,
         }
         tab = pages.get(name)
@@ -343,6 +364,35 @@ class DiscordVoiceTTSApp(tk.Tk):
         ttk.Button(actions, text="Usar Python portatil", command=self.use_portable_python).pack(fill="x", pady=3)
         ttk.Button(actions, text="Popup de texto", command=self.open_quick_text_popup).pack(fill="x", pady=3)
 
+    def _build_audio_tab(self) -> None:
+        playback = ttk.LabelFrame(self.audio_tab, text="Saida local baseada no message.txt", padding=12)
+        playback.pack(fill="x")
+        ttk.Checkbutton(playback, text="Tocar tambem no meu PC", variable=self.local_monitor_enabled_var).pack(anchor="w", pady=3)
+        ttk.Checkbutton(playback, text="Enviar tambem para VB-CABLE (CABLE Input)", variable=self.vb_cable_enabled_var).pack(anchor="w", pady=3)
+
+        row = ttk.Frame(playback)
+        row.pack(fill="x", pady=6)
+        ttk.Label(row, text="Saida local", width=18).pack(side="left")
+        self.output_combo = ttk.Combobox(row, textvariable=self.local_output_device_var, state="readonly")
+        self.output_combo.pack(side="left", fill="x", expand=True)
+        ttk.Button(row, text="Atualizar", command=self.refresh_devices).pack(side="left", padx=(8, 0))
+
+        cache = ttk.LabelFrame(self.audio_tab, text="Cache de TTS", padding=12)
+        cache.pack(fill="x", pady=(14, 0))
+        ttk.Checkbutton(cache, text="Usar cache por texto/voz para respostas repetidas instantaneas", variable=self.cache_enabled_var).pack(anchor="w", pady=3)
+        ttk.Button(cache, text="Abrir cache_audio", command=lambda: _open_path(Path("cache_audio").resolve())).pack(anchor="w", pady=(8, 0))
+        ttk.Button(cache, text="Limpar cache_audio", command=self.clear_tts_cache).pack(anchor="w", pady=(6, 0))
+
+        hotkey = ttk.LabelFrame(self.audio_tab, text="Popup e hotkey", padding=12)
+        hotkey.pack(fill="x", pady=(14, 0))
+        ttk.Checkbutton(hotkey, text="Usar hotkey global com biblioteca keyboard", variable=self.global_hotkey_enabled_var).pack(anchor="w", pady=3)
+        self._entry(hotkey, "Hotkey popup", self.popup_hotkey_var)
+        ttk.Label(
+            hotkey,
+            text="Hotkey global pode exigir permissao de administrador no Windows. Se falhar, o atalho funciona quando o app estiver focado.",
+            wraplength=880,
+        ).pack(anchor="w", pady=(6, 0))
+
     def _build_rvc_tab(self) -> None:
         panel = ttk.LabelFrame(self.rvc_tab, text="Conversao RVC opcional", padding=12)
         panel.pack(fill="x")
@@ -365,13 +415,45 @@ class DiscordVoiceTTSApp(tk.Tk):
         actions = ttk.Frame(panel)
         actions.pack(side="left", fill="y")
         ttk.Button(actions, text="Instalar Python 3.10", command=self.install_python310).pack(fill="x", pady=3)
+        ttk.Button(actions, text="Instalar Python 3.11", command=self.install_python311).pack(fill="x", pady=3)
+        ttk.Button(actions, text="Usar Python 3.10", command=self.use_portable_python).pack(fill="x", pady=3)
+        ttk.Button(actions, text="Usar Python 3.11", command=self.use_portable_python311).pack(fill="x", pady=3)
         ttk.Button(actions, text="Instalar TTS atual", command=self.install_current_provider).pack(fill="x", pady=3)
         ttk.Button(actions, text="Instalar RVC", command=self.install_rvc).pack(fill="x", pady=3)
         ttk.Button(actions, text="Abrir tools", command=lambda: _open_path(Path("tools").resolve())).pack(fill="x", pady=3)
+        ttk.Button(actions, text="Python downloads", command=lambda: webbrowser.open("https://www.python.org/downloads/windows/")).pack(fill="x", pady=3)
         ttk.Button(actions, text="Baixar Build Tools", command=lambda: webbrowser.open("https://visualstudio.microsoft.com/visual-cpp-build-tools/")).pack(fill="x", pady=3)
 
+        console = ttk.LabelFrame(self.tools_tab, text="Console do interpretador Python", padding=12)
+        console.pack(fill="both", expand=True, pady=(14, 0))
+        self._path_entry(console, "Interpretador", self.python_exe_var, self.select_python)
+        row = ttk.Frame(console)
+        row.pack(fill="x", pady=4)
+        ttk.Label(row, text="Comando", width=18).pack(side="left")
+        command_entry = ttk.Entry(row, textvariable=self.python_console_command_var)
+        command_entry.pack(side="left", fill="x", expand=True)
+        command_entry.bind("<Return>", lambda _event: self.run_python_console_command())
+
+        suggestions = ttk.Frame(console)
+        suggestions.pack(fill="x", pady=(4, 8))
+        for label, command in (
+            ("Versao", "--version"),
+            ("pip --version", "-m pip --version"),
+            ("Atualizar pip", "-m pip install --upgrade pip setuptools wheel"),
+            ("Instalar Edge/gTTS", "-m pip install edge-tts gTTS imageio-ffmpeg keyboard"),
+            ("Instalar Coqui", "-m pip install numpy==1.26.4 Cython<3 packaging TTS==0.22.0"),
+            ("Instalar RVC", "-m pip install pip<24.1 rvc-python"),
+        ):
+            ttk.Button(suggestions, text=label, command=lambda value=command: self.set_python_console_command(value)).pack(side="left", padx=(0, 6), pady=2)
+        ttk.Button(suggestions, text="Executar", style="Accent.TButton", command=self.run_python_console_command).pack(side="right", padx=(6, 0))
+        ttk.Button(suggestions, text="Limpar console", command=self.clear_python_console).pack(side="right")
+
+        self.python_console_text = self._text_widget(console, height=12, state="disabled")
+        self.python_console_text.pack(fill="both", expand=True)
+        self._append_python_console("Sugestao: escolha o interpretador acima e rode comandos como `-m pip install pacote`.\n")
+
         help_box = ttk.LabelFrame(self.tools_tab, text="Como configurar provedores externos", padding=12)
-        help_box.pack(fill="both", expand=True, pady=(14, 0))
+        help_box.pack(fill="x", pady=(14, 0))
         ttk.Label(
             help_box,
             text=(
@@ -462,18 +544,28 @@ class DiscordVoiceTTSApp(tk.Tk):
     def refresh_devices(self) -> None:
         try:
             devices = audio_devices.list_input_devices()
+            outputs = audio_devices.list_output_devices()
         except Exception as exc:
-            messagebox.showerror("Audio", f"Nao foi possivel listar microfones.\n\n{exc}")
-            self.log(f"Erro ao listar microfones: {exc}", level="error")
+            messagebox.showerror("Audio", f"Nao foi possivel listar dispositivos de audio.\n\n{exc}")
+            self.log(f"Erro ao listar audio: {exc}", level="error")
             return
         self.input_map = audio_devices.label_map(devices)
-        self.input_combo.configure(values=list(self.input_map.keys()))
+        self.output_map = audio_devices.output_label_map(outputs)
+        if hasattr(self, "input_combo"):
+            self.input_combo.configure(values=list(self.input_map.keys()))
+        if hasattr(self, "output_combo"):
+            self.output_combo.configure(values=list(self.output_map.keys()))
         default = audio_devices.default_input_index()
         selected = self.input_device_var.get()
         if selected not in self.input_map:
             selected = next((label for label, index in self.input_map.items() if index == default), None)
         self.input_device_var.set(selected or next(iter(self.input_map), ""))
-        self.log(f"{len(self.input_map)} microfone(s) encontrados")
+        default_output = audio_devices.default_output_index()
+        selected_output = self.local_output_device_var.get()
+        if selected_output not in self.output_map:
+            selected_output = next((label for label, index in self.output_map.items() if index == default_output), None)
+        self.local_output_device_var.set(selected_output or next(iter(self.output_map), ""))
+        self.log(f"{len(self.input_map)} microfone(s), {len(self.output_map)} saida(s) encontrados")
 
     def toggle_running(self) -> None:
         if self._running:
@@ -607,6 +699,7 @@ class DiscordVoiceTTSApp(tk.Tk):
     def _rebind_popup_hotkey(self) -> None:
         if not hasattr(self, "popup_hotkey_var"):
             return
+        self._remove_global_hotkey()
         if self._hotkey_bind_id is not None:
             try:
                 self.unbind_all(self._hotkey_bind_id)
@@ -617,6 +710,33 @@ class DiscordVoiceTTSApp(tk.Tk):
         if sequence:
             self.bind_all(sequence, self.open_quick_text_popup)
             self._hotkey_bind_id = sequence
+        if self.global_hotkey_enabled_var.get():
+            self._register_global_hotkey()
+
+    def _register_global_hotkey(self) -> None:
+        try:
+            import keyboard
+
+            hotkey = self.popup_hotkey_var.get().replace("Espaco", "space").replace("Ctrl", "ctrl").lower()
+            self._global_hotkey_id = keyboard.add_hotkey(hotkey, lambda: self.after(0, self.open_quick_text_popup))
+            self.log(f"Hotkey global ativa: {self.popup_hotkey_var.get()}")
+        except Exception as exc:
+            self._global_hotkey_id = None
+            self.log(
+                f"Hotkey global indisponivel: {exc}. Instale com Ferramentas > Instalar TTS atual ou rode pip install keyboard.",
+                level="warn",
+            )
+
+    def _remove_global_hotkey(self) -> None:
+        if self._global_hotkey_id is None:
+            return
+        try:
+            import keyboard
+
+            keyboard.remove_hotkey(self._global_hotkey_id)
+        except Exception:
+            pass
+        self._global_hotkey_id = None
 
     def _event_to_hotkey(self, event) -> str:
         key = event.keysym
@@ -669,6 +789,10 @@ class DiscordVoiceTTSApp(tk.Tk):
             provider=self.tts_provider_var.get(),
             voice=self.tts_voice_var.get(),
             speed=float(self.tts_speed_var.get()),
+            cache_enabled=self.cache_enabled_var.get(),
+            local_monitor_enabled=self.local_monitor_enabled_var.get(),
+            local_output_device=self.local_output_device_var.get(),
+            vb_cable_enabled=self.vb_cable_enabled_var.get(),
             timeout_seconds=_int(self.tts_timeout_var.get(), 240),
             ffmpeg_exe=self.ffmpeg_exe_var.get(),
             python_exe=self.python_exe_var.get(),
@@ -722,6 +846,13 @@ class DiscordVoiceTTSApp(tk.Tk):
 
         self.installer.run("Python 3.10 portatil", action)
 
+    def install_python311(self) -> None:
+        def action() -> None:
+            exe = self.installer.install_portable_python311()
+            self.after(0, lambda: self.python_exe_var.set(str(exe)))
+
+        self.installer.run("Python 3.11 portatil", action)
+
     def install_rvc(self) -> None:
         def action() -> None:
             exe = self.installer.install_portable_rvc()
@@ -758,6 +889,73 @@ class DiscordVoiceTTSApp(tk.Tk):
 
         self.installer.run(f"Dependencias {provider}", action)
 
+    def set_python_console_command(self, command: str) -> None:
+        self.python_console_command_var.set(command)
+
+    def run_python_console_command(self) -> None:
+        python_exe = self.python_exe_var.get().strip() or sys.executable
+        command_text = self.python_console_command_var.get().strip()
+        if not command_text:
+            messagebox.showwarning("Console Python", "Digite um comando para executar.")
+            return
+        if not Path(python_exe).exists() and python_exe != sys.executable:
+            messagebox.showerror("Console Python", "Interpretador Python nao encontrado.")
+            return
+
+        try:
+            args = shlex.split(command_text, posix=False)
+        except ValueError as exc:
+            messagebox.showerror("Console Python", f"Comando invalido: {exc}")
+            return
+        full_command = self._python_console_full_command(python_exe, args)
+        self._append_python_console(f"\n> {' '.join(full_command)}\n")
+
+        def worker() -> None:
+            try:
+                process = subprocess.Popen(
+                    full_command,
+                    cwd=Path.cwd(),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                )
+            except Exception as exc:
+                self.after(0, lambda: self._append_python_console(f"[erro] {exc}\n"))
+                return
+
+            assert process.stdout is not None
+            for line in process.stdout:
+                self.after(0, lambda value=line: self._append_python_console(value))
+            code = process.wait()
+            self.after(0, lambda: self._append_python_console(f"[exit {code}]\n"))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _python_console_full_command(self, python_exe: str, args: list[str]) -> list[str]:
+        if not args:
+            return [python_exe]
+        first = args[0].lower().strip('"')
+        if first in {"pip", "pip3"}:
+            return [python_exe, "-m", "pip", *args[1:]]
+        if first in {"python", "python.exe", "py"} or first.endswith("\\python.exe"):
+            return args
+        return [python_exe, *args]
+
+    def _append_python_console(self, text: str) -> None:
+        if not hasattr(self, "python_console_text"):
+            return
+        self.python_console_text.configure(state="normal")
+        self.python_console_text.insert("end", text)
+        self.python_console_text.see("end")
+        self.python_console_text.configure(state="disabled")
+
+    def clear_python_console(self) -> None:
+        if not hasattr(self, "python_console_text"):
+            return
+        self.python_console_text.configure(state="normal")
+        self.python_console_text.delete("1.0", "end")
+        self.python_console_text.configure(state="disabled")
+
     def use_portable_python(self) -> None:
         exe = python310_exe()
         if exe.exists():
@@ -765,6 +963,14 @@ class DiscordVoiceTTSApp(tk.Tk):
             self.log(f"Python portatil selecionado: {exe}")
         else:
             messagebox.showinfo("Python portatil", "Python 3.10 portatil ainda nao foi instalado.")
+
+    def use_portable_python311(self) -> None:
+        exe = python311_exe()
+        if exe.exists():
+            self.python_exe_var.set(str(exe))
+            self.log(f"Python portatil selecionado: {exe}")
+        else:
+            messagebox.showinfo("Python portatil", "Python 3.11 portatil ainda nao foi instalado.")
 
     def refresh_windows_voices(self) -> None:
         voices = list_windows_voices()
@@ -806,6 +1012,20 @@ class DiscordVoiceTTSApp(tk.Tk):
         self.log_text.delete("1.0", "end")
         self.log_text.configure(state="disabled")
 
+    def clear_tts_cache(self) -> None:
+        cache_dir = Path("cache_audio").resolve()
+        if not cache_dir.exists():
+            self.log("Cache de TTS ja esta vazio")
+            return
+        removed = 0
+        for item in cache_dir.glob("*.wav"):
+            try:
+                item.unlink()
+                removed += 1
+            except Exception as exc:
+                self.log(f"Nao foi possivel apagar cache {item.name}: {exc}", level="warn")
+        self.log(f"Cache de TTS limpo: {removed} arquivo(s)")
+
     def _friendly_bot_status(self, status: str) -> str:
         if "Improper token" in status or "LoginFailure" in status:
             return "Token invalido. Use Developer Portal > Bot > Token."
@@ -840,6 +1060,10 @@ class DiscordVoiceTTSApp(tk.Tk):
                 "input_device": self.input_device_var.get(),
                 "block_size": self.block_size_var.get(),
                 "manual_text": self.manual_text_var.get(),
+                "cache_enabled": self.cache_enabled_var.get(),
+                "local_monitor_enabled": self.local_monitor_enabled_var.get(),
+                "local_output_device": self.local_output_device_var.get(),
+                "vb_cable_enabled": self.vb_cable_enabled_var.get(),
                 "tts_provider": self.tts_provider_var.get(),
                 "tts_voice": self.tts_voice_var.get(),
                 "tts_speed": self.tts_speed_var.get(),
@@ -881,11 +1105,13 @@ class DiscordVoiceTTSApp(tk.Tk):
                 "rvc_device": self.rvc_device_var.get(),
                 "rvc_index_rate": self.rvc_index_rate_var.get(),
                 "popup_hotkey": self.popup_hotkey_var.get(),
+                "global_hotkey_enabled": self.global_hotkey_enabled_var.get(),
             }
         )
 
     def destroy(self) -> None:
         self._quitting = True
+        self._remove_global_hotkey()
         self._sync_manual_text_from_widget()
         self.save_persistent_config()
         self.stop_services()

@@ -1,15 +1,17 @@
 numpy>=1.26
 sounddevice>=0.4.7
+soundfile>=0.12
 vosk>=0.3.45
 discord.py[voice]>=2.4
 pyttsx3>=2.90
 edge-tts>=7.0
 gTTS>=2.5
+imageio-ffmpeg>=0.5
+keyboard>=0.13.5
 Pillow>=10.0
 
 # Provedores TTS locais opcionais:
 # kokoro>=0.9.4
-# soundfile>=0.12
 # TTS==0.22.0
 # rvc-python
 # f5-tts

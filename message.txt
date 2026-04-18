@@ -1,0 +1,193 @@
+import asyncio
+import edge_tts
+import tkinter as tk
+from tkinter import ttk
+import sounddevice as sd
+import soundfile as sf
+import keyboard
+import json
+import os
+import threading
+import time
+import hashlib
+
+CONFIG_FILE = "config.json"
+CACHE_DIR = "cache_audio"
+os.makedirs(CACHE_DIR, exist_ok=True)
+
+VOZES = {
+    "🎀 TikTok Girl": "pt-BR-FranciscaNeural",
+    "🧑‍💻 TikTok Boy": "pt-BR-AntonioNeural",
+    "💖 Fofa": "pt-PT-RaquelNeural",
+    "😂 Engraçada": "en-US-AriaNeural",
+}
+
+# ================= AUDIO =================
+def listar_saidas():
+    return [(i, d['name']) for i, d in enumerate(sd.query_devices()) if d['max_output_channels'] > 0]
+
+SAIDAS = listar_saidas()
+
+def pegar_vbcable():
+    for i, d in enumerate(sd.query_devices()):
+        if "CABLE Input" in d['name']:
+            return i
+    return None
+
+# ================= CONFIG =================
+def salvar_config():
+    json.dump({
+        "voz": voz_var.get(),
+        "tecla": tecla_var.get(),
+        "saida": saida_var.get(),
+        "usar_vb": usar_vb.get()
+    }, open(CONFIG_FILE, "w"))
+
+def carregar_config():
+    return json.load(open(CONFIG_FILE)) if os.path.exists(CONFIG_FILE) else {}
+
+# ================= LOOP =================
+loop = asyncio.new_event_loop()
+threading.Thread(target=loop.run_forever, daemon=True).start()
+
+# ================= CACHE =================
+def get_cache_file(texto, voz):
+    chave = hashlib.md5((texto + voz).encode()).hexdigest()
+    return os.path.join(CACHE_DIR, f"{chave}.wav")
+
+# ================= TTS =================
+async def gerar_audio(texto, voz, arquivo):
+    await edge_tts.Communicate(texto, voz).save(arquivo)
+
+def tocar_audio(arquivo):
+    try:
+        data, fs = sf.read(arquivo)
+        sd.stop()
+
+        # fone
+        if saida_index is not None:
+            sd.play(data, fs, device=saida_index)
+
+        # vb-cable
+        if usar_vb.get():
+            vb = pegar_vbcable()
+            if vb is not None:
+                def tocar_vb():
+                    time.sleep(0.03)
+                    sd.play(data, fs, device=vb)
+                threading.Thread(target=tocar_vb, daemon=True).start()
+    except Exception as e:
+        print("Erro ao tocar:", e)
+
+def falar(texto):
+    voz = VOZES[voz_var.get()]
+    arquivo = get_cache_file(texto, voz)
+
+    # se já existe → instantâneo
+    if os.path.exists(arquivo):
+        threading.Thread(target=tocar_audio, args=(arquivo,), daemon=True).start()
+    else:
+        # gera e toca
+        def gerar_e_tocar():
+            asyncio.run(gerar_audio(texto, voz, arquivo))
+            tocar_audio(arquivo)
+
+        threading.Thread(target=gerar_e_tocar, daemon=True).start()
+
+# ================= POPUP =================
+popup = None
+
+def abrir_caixa():
+    global popup
+
+    if popup:
+        try:
+            popup.destroy()
+        except:
+            pass
+
+    popup = tk.Toplevel(root)
+    popup.geometry("350x120")
+    popup.configure(bg="#1e1e1e")
+    popup.attributes("-topmost", True)
+
+    x = root.winfo_screenwidth() // 2 - 175
+    y = root.winfo_screenheight() // 2 - 60
+    popup.geometry(f"+{x}+{y}")
+
+    entry = tk.Entry(popup, bg="#2b2b2b", fg="white", insertbackground="white")
+    entry.pack(pady=20, padx=20, fill="x")
+
+    def enviar(event=None):
+        texto = entry.get().strip()
+        if texto:
+            falar(texto)
+        popup.destroy()
+
+    entry.bind("<Return>", enviar)
+
+    tk.Button(popup, text="Enviar", command=enviar, bg="#4CAF50", fg="white").pack()
+
+    popup.after(10, entry.focus_force)
+
+# ================= HOTKEY =================
+hotkey_id = None
+
+def registrar_hotkey():
+    global hotkey_id
+    if hotkey_id:
+        keyboard.remove_hotkey(hotkey_id)
+    hotkey_id = keyboard.add_hotkey(tecla_var.get(), abrir_caixa)
+
+# ================= CONFIG UI =================
+def abrir_config():
+    config_win = tk.Toplevel(root)
+    config_win.geometry("320x280")
+    config_win.configure(bg="#1e1e1e")
+
+    tk.Label(config_win, text="Voz:", fg="white", bg="#1e1e1e").pack()
+    ttk.Combobox(config_win, textvariable=voz_var, values=list(VOZES.keys())).pack()
+
+    tk.Label(config_win, text="Tecla:", fg="white", bg="#1e1e1e").pack()
+    tk.Entry(config_win, textvariable=tecla_var).pack()
+
+    tk.Label(config_win, text="Saída:", fg="white", bg="#1e1e1e").pack()
+    nomes = [f"{i} - {n}" for i, n in SAIDAS]
+    ttk.Combobox(config_win, values=nomes, textvariable=saida_var).pack()
+
+    tk.Checkbutton(config_win, text="Usar VB-CABLE", variable=usar_vb, bg="#1e1e1e", fg="white").pack()
+
+    def salvar():
+        global saida_index
+        salvar_config()
+
+        if saida_var.get():
+            saida_index = int(saida_var.get().split(" - ")[0])
+
+        registrar_hotkey()
+        config_win.destroy()
+        root.withdraw()
+
+    tk.Button(config_win, text="Salvar", command=salvar).pack(pady=10)
+
+# ================= ROOT =================
+root = tk.Tk()
+root.withdraw()
+
+voz_var = tk.StringVar(value="🎀 TikTok Girl")
+tecla_var = tk.StringVar(value="F8")
+saida_var = tk.StringVar()
+usar_vb = tk.BooleanVar(value=True)
+
+saida_index = None
+
+config = carregar_config()
+if config:
+    voz_var.set(config.get("voz", voz_var.get()))
+    tecla_var.set(config.get("tecla", tecla_var.get()))
+    saida_var.set(config.get("saida", ""))
+    usar_vb.set(config.get("usar_vb", True))
+
+root.after(100, abrir_config)
+
+root.mainloop()

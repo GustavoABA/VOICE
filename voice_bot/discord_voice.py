@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from queue import Empty, SimpleQueue
 from threading import Event, Thread
 
-from .tts import TTSConfig, TTSManager, cleanup_wav, wav_to_discord_pcm
+from .tts import TTSConfig, TTSManager, cleanup_wav, play_wav_monitor, wav_to_discord_pcm
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,6 +179,7 @@ class DiscordVoiceBot:
             try:
                 self.status_queue.put(f"TTS recebido: {text[:80]}")
                 wav_path = await asyncio.to_thread(self._tts_manager.synthesize, text, self._tts_config)
+                await asyncio.to_thread(play_wav_monitor, wav_path, self._tts_config, self.status_queue.put)
                 source = make_pcm_audio_source(wav_path)
                 done = asyncio.Event()
 
