@@ -12,65 +12,114 @@ import wave
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 import numpy as np
 
 
 TARGET_RATE = 48000
-TIKTOK_DEFAULT_ENDPOINT = "https://api16-normal-v6.tiktokv.com/media/api/text/speech/invoke"
-TIKTOK_AGUS_ENDPOINT = "https://api.tiktokv.com/media/api/text/speech/invoke/"
 
 
 class TTSError(RuntimeError):
-    pass
+    """Erro exibivel na interface."""
+
+
+LogCallback = Callable[[str], None]
+
+
+PROVIDERS = (
+    "Balabolka",
+    "NaturalReader",
+    "TTSReader",
+    "Piper TTS",
+    "Kokoro TTS",
+    "XTTS-v2",
+    "Coqui TTS",
+    "Chatterbox TTS",
+    "pyttsx3",
+    "eSpeak NG",
+    "Festival",
+    "Mimic 3",
+    "Tortoise TTS",
+    "ChatTTS",
+    "F5-TTS",
+    "OpenVoice",
+    "VITS",
+    "YourTTS",
+    "Glow-TTS",
+    "MaryTTS",
+    "RHVoice",
+)
+
+
+COQUI_MODEL_DEFAULTS = {
+    "XTTS-v2": "tts_models/multilingual/multi-dataset/xtts_v2",
+    "Coqui TTS": "",
+    "VITS": "tts_models/en/ljspeech/vits",
+    "YourTTS": "tts_models/multilingual/multi-dataset/your_tts",
+    "Glow-TTS": "tts_models/en/ljspeech/glow-tts",
+}
+
+
+EXTERNAL_COMMAND_HINTS = {
+    "Balabolka": "Use o modo linha de comando do Balabolka. Exemplo: \"C:\\Program Files (x86)\\Balabolka\\balabolka.exe\" -nq -t \"{text}\" -w \"{output}\"",
+    "Chatterbox TTS": "Informe um comando/script que receba texto e gere WAV. Use {text}, {output}, {voice}, {speed}.",
+    "Tortoise TTS": "Tortoise normalmente exige Python 3.10/3.11 e um script local. Configure o comando que gera {output}.",
+    "ChatTTS": "Configure um script local do ChatTTS que gere WAV em {output}.",
+    "OpenVoice": "Configure o comando do seu ambiente OpenVoice para gerar WAV em {output}.",
+}
 
 
 @dataclass(slots=True)
 class TTSConfig:
     provider: str
     voice: str = ""
-    piper_exe: str = ""
+    speed: float = 1.0
+    timeout_seconds: int = 240
+    ffmpeg_exe: str = "ffmpeg"
+    python_exe: str = ""
+    command_template: str = ""
+    endpoint_url: str = ""
+    endpoint_method: str = "POST"
+    endpoint_text_field: str = "text"
+    endpoint_voice_field: str = "voice"
+    piper_exe: str = "piper"
     piper_model: str = ""
-    espeak_exe: str = "espeak-ng"
+    kokoro_voice: str = "pf_dora"
+    kokoro_lang: str = "p"
     coqui_model: str = ""
-    coqui_python: str = ""
     coqui_language: str = "pt"
     coqui_speaker_wav: str = ""
-    kokoro_voice: str = "pf_dora"
-    bark_voice: str = "v2/pt_speaker_0"
-    bark_small: bool = True
-    melo_language: str = "EN"
-    melo_speaker: str = "EN-US"
-    melo_device: str = "auto"
+    espeak_exe: str = "espeak-ng"
+    espeak_voice: str = "pt-br"
+    festival_exe: str = "text2wave"
+    mimic3_exe: str = "mimic3"
+    mimic3_voice: str = ""
     f5_exe: str = "f5-tts_infer-cli"
     f5_model: str = "F5TTS_v1_Base"
     f5_ref_audio: str = ""
     f5_ref_text: str = ""
-    edge_voice: str = "pt-BR-FranciscaNeural"
-    ffmpeg_exe: str = "ffmpeg"
-    tiktok_voice: str = "br_001"
-    tiktok_api_url: str = ""
-    tiktok_session_id: str = ""
-    tiktok_endpoint: str = TIKTOK_DEFAULT_ENDPOINT
-    naturalreader_api_url: str = ""
-    openai_api_key: str = ""
-    openai_voice: str = "alloy"
+    marytts_url: str = "http://localhost:59125/process"
+    marytts_locale: str = "pt_BR"
+    marytts_voice: str = ""
+    rhvoice_exe: str = "RHVoice-test"
+    rhvoice_voice: str = ""
+    rvc_enabled: bool = False
     rvc_model: str = ""
     rvc_index: str = ""
     rvc_pitch: int = 0
     rvc_device: str = "cpu"
     rvc_index_rate: float = 0.33
-    speed: float = 1.0
 
 
 class TTSProvider(ABC):
     @abstractmethod
-    def synthesize(self, text: str, config: TTSConfig) -> str:
-        """Return path to a temporary WAV file."""
+    def synthesize(self, text: str, config: TTSConfig, log: LogCallback | None = None) -> str:
+        """Retorna o caminho de um WAV temporario."""
 
 
-class WindowsSapiTTS(TTSProvider):
-    def synthesize(self, text: str, config: TTSConfig) -> str:
+class Pyttsx3TTS(TTSProvider):
+    def synthesize(self, text: str, config: TTSConfig, log: LogCallback | None = None) -> str:
         try:
             import pyttsx3
         except Exception as exc:
@@ -79,211 +128,89 @@ class WindowsSapiTTS(TTSProvider):
         wav_path = _temp_wav_path()
         engine = pyttsx3.init()
         if config.voice:
+            selected = config.voice.lower()
             for voice in engine.getProperty("voices"):
-                if config.voice in (voice.id, voice.name):
+                if selected in str(voice.id).lower() or selected in str(voice.name).lower():
                     engine.setProperty("voice", voice.id)
                     break
-        engine.setProperty("rate", int(185 * max(0.5, min(1.8, config.speed))))
+        engine.setProperty("rate", int(185 * _clamp(config.speed, 0.5, 1.8)))
         engine.save_to_file(text, wav_path)
         engine.runAndWait()
         return wav_path
 
 
 class PiperTTS(TTSProvider):
-    def synthesize(self, text: str, config: TTSConfig) -> str:
-        exe = config.piper_exe.strip() or "piper"
-        model = config.piper_model.strip()
-        if not model:
-            raise TTSError("Informe o arquivo .onnx do modelo Piper.")
-
+    def synthesize(self, text: str, config: TTSConfig, log: LogCallback | None = None) -> str:
+        if not config.piper_model.strip():
+            raise TTSError("Selecione o modelo .onnx do Piper TTS.")
         wav_path = _temp_wav_path()
-        try:
-            subprocess.run(
-                [exe, "--model", model, "--output_file", wav_path],
-                input=text,
-                text=True,
-                check=True,
-                capture_output=True,
-                timeout=60,
-            )
-        except Exception as exc:
-            raise TTSError(f"Falha ao executar Piper: {exc}") from exc
-        return wav_path
-
-
-class EspeakTTS(TTSProvider):
-    def synthesize(self, text: str, config: TTSConfig) -> str:
-        wav_path = _temp_wav_path()
-        try:
-            subprocess.run(
-                [
-                    config.espeak_exe.strip() or "espeak-ng",
-                    "-v",
-                    config.voice or "pt-br",
-                    "-s",
-                    str(int(170 * max(0.5, min(1.8, config.speed)))),
-                    "-w",
-                    wav_path,
-                    text,
-                ],
-                check=True,
-                capture_output=True,
-                timeout=60,
-            )
-        except Exception as exc:
-            raise TTSError(f"Falha ao executar eSpeak NG: {exc}") from exc
+        _run_checked(
+            [
+                config.piper_exe.strip() or "piper",
+                "--model",
+                config.piper_model.strip(),
+                "--output_file",
+                wav_path,
+            ],
+            input_text=text,
+            timeout=config.timeout_seconds,
+            error_prefix="Piper TTS falhou",
+        )
         return wav_path
 
 
 class KokoroTTS(TTSProvider):
     def __init__(self) -> None:
         self._pipeline = None
+        self._lang = ""
 
-    def synthesize(self, text: str, config: TTSConfig) -> str:
+    def synthesize(self, text: str, config: TTSConfig, log: LogCallback | None = None) -> str:
         try:
             import soundfile as sf
             from kokoro import KPipeline
         except Exception as exc:
-            raise TTSError("Kokoro local requer instalar os pacotes opcionais `kokoro` e `soundfile`.") from exc
+            raise TTSError("Kokoro TTS requer `pip install kokoro soundfile`.") from exc
 
-        if self._pipeline is None:
-            self._pipeline = KPipeline(lang_code="p")
+        lang = config.kokoro_lang.strip() or "p"
+        if self._pipeline is None or self._lang != lang:
+            self._pipeline = KPipeline(lang_code=lang)
+            self._lang = lang
 
-        wav_path = _temp_wav_path()
-        chunks = []
+        chunks: list[np.ndarray] = []
         for _graphemes, _phonemes, audio in self._pipeline(
             text,
-            voice=config.kokoro_voice or "pf_dora",
-            speed=max(0.5, min(1.8, config.speed)),
+            voice=config.kokoro_voice.strip() or "pf_dora",
+            speed=_clamp(config.speed, 0.5, 1.8),
         ):
             chunks.append(np.asarray(audio, dtype=np.float32))
         if not chunks:
-            raise TTSError("Kokoro nao gerou audio.")
+            raise TTSError("Kokoro TTS nao gerou audio.")
+
+        wav_path = _temp_wav_path()
         sf.write(wav_path, np.concatenate(chunks), 24000, subtype="PCM_16")
         return wav_path
 
 
-class BarkTTS(TTSProvider):
-    def __init__(self) -> None:
-        self._loaded = False
-
-    def synthesize(self, text: str, config: TTSConfig) -> str:
-        portable_python = _valid_external_python(config.coqui_python)
-        if portable_python:
-            return self._synthesize_with_python(text, config, portable_python)
-
-        if config.bark_small:
-            os.environ.setdefault("SUNO_USE_SMALL_MODELS", "True")
-        try:
-            from bark import SAMPLE_RATE, generate_audio, preload_models
-            from scipy.io.wavfile import write as write_wav
-        except Exception as exc:
-            raise TTSError("Bark requer `bark`, `scipy` e PyTorch instalados.") from exc
-
-        if not self._loaded:
-            preload_models()
-            self._loaded = True
-        wav_path = _temp_wav_path()
-        kwargs = {}
-        if config.bark_voice.strip():
-            kwargs["history_prompt"] = config.bark_voice.strip()
-        audio = generate_audio(text, **kwargs)
-        audio_pcm = (np.clip(audio, -1.0, 1.0) * 32767).astype(np.int16)
-        write_wav(wav_path, SAMPLE_RATE, audio_pcm)
-        return wav_path
-
-    def _synthesize_with_python(self, text: str, config: TTSConfig, python_exe: str) -> str:
-        wav_path = _temp_wav_path()
-        script = _write_temp_script(
-            [
-                "import os, sys",
-                "import numpy as np",
-                "if sys.argv[4] == '1': os.environ.setdefault('SUNO_USE_SMALL_MODELS', 'True')",
-                "from bark import SAMPLE_RATE, generate_audio, preload_models",
-                "from scipy.io.wavfile import write as write_wav",
-                "text, out, voice = sys.argv[1], sys.argv[2], sys.argv[3]",
-                "preload_models()",
-                "kwargs = {'history_prompt': voice} if voice else {}",
-                "audio = generate_audio(text, **kwargs)",
-                "audio_pcm = (np.clip(audio, -1.0, 1.0) * 32767).astype(np.int16)",
-                "write_wav(out, SAMPLE_RATE, audio_pcm)",
-            ]
-        )
-        try:
-            _run_checked([python_exe, str(script), text, wav_path, config.bark_voice.strip(), "1" if config.bark_small else "0"], timeout=240)
-        finally:
-            cleanup_wav(str(script))
-        return wav_path
-
-
-class MeloTTS(TTSProvider):
-    def synthesize(self, text: str, config: TTSConfig) -> str:
-        portable_python = _valid_external_python(config.coqui_python)
-        if portable_python:
-            return self._synthesize_with_python(text, config, portable_python)
-
-        try:
-            from melo.api import TTS
-        except Exception as exc:
-            raise TTSError("MeloTTS requer instalar `MeloTTS`/`melotts-plus` e modelos locais.") from exc
-
-        model = TTS(language=config.melo_language or "EN", device=config.melo_device or "auto")
-        speaker_id = _speaker_id(model.hps.data.spk2id, config.melo_speaker)
-        wav_path = _temp_wav_path()
-        model.tts_to_file(text, speaker_id, wav_path, speed=max(0.5, min(2.0, config.speed)))
-        return wav_path
-
-    def _synthesize_with_python(self, text: str, config: TTSConfig, python_exe: str) -> str:
-        wav_path = _temp_wav_path()
-        script = _write_temp_script(
-            [
-                "import sys",
-                "from melo.api import TTS",
-                "text, out, language, speaker, device, speed = sys.argv[1:7]",
-                "model = TTS(language=language or 'EN', device=device or 'auto')",
-                "speaker_ids = model.hps.data.spk2id",
-                "speaker_id = speaker_ids.get(speaker) if speaker else None",
-                "if speaker_id is None: speaker_id = next(iter(speaker_ids.values()))",
-                "model.tts_to_file(text, speaker_id, out, speed=float(speed))",
-            ]
-        )
-        try:
-            _run_checked(
-                [
-                    python_exe,
-                    str(script),
-                    text,
-                    wav_path,
-                    config.melo_language or "EN",
-                    config.melo_speaker,
-                    config.melo_device or "auto",
-                    str(max(0.5, min(2.0, config.speed))),
-                ],
-                timeout=180,
-            )
-        finally:
-            cleanup_wav(str(script))
-        return wav_path
-
-
-class CoquiTTS(TTSProvider):
+class CoquiLikeTTS(TTSProvider):
     def __init__(self) -> None:
         self._model_name = ""
         self._tts = None
 
-    def synthesize(self, text: str, config: TTSConfig) -> str:
-        portable_python = _valid_external_python(config.coqui_python)
-        if portable_python:
-            return self._synthesize_with_portable_python(text, config, portable_python)
+    def synthesize(self, text: str, config: TTSConfig, log: LogCallback | None = None) -> str:
+        model = _coqui_model_for(config)
+        if not model:
+            raise TTSError("Informe o modelo Coqui/TTS a ser usado.")
 
+        portable_python = _valid_external_python(config.python_exe)
+        if portable_python:
+            return self._synthesize_with_python(text, config, model, portable_python)
+
+        _require_compatible_python(config.provider)
         try:
             from TTS.api import TTS
         except Exception as exc:
-            raise TTSError("Coqui TTS local requer instalar o pacote opcional `TTS`.") from exc
+            raise TTSError("Coqui TTS requer `TTS==0.22.0` em Python compativel.") from exc
 
-        model = config.coqui_model.strip()
-        if not model:
-            raise TTSError("Informe um modelo Coqui local ou nome de modelo instalado.")
         if "xtts" in model.lower():
             os.environ.setdefault("COQUI_TOS_AGREED", "1")
         if self._tts is None or self._model_name != model:
@@ -291,19 +218,14 @@ class CoquiTTS(TTSProvider):
             self._model_name = model
 
         wav_path = _temp_wav_path()
-        self._tts.tts_to_file(**self._coqui_kwargs(text, wav_path, model, config))
+        self._tts.tts_to_file(**_coqui_kwargs(text, wav_path, model, config))
         return wav_path
 
-    def _synthesize_with_portable_python(self, text: str, config: TTSConfig, python_exe: str) -> str:
-        model = config.coqui_model.strip()
-        if not model:
-            raise TTSError("Informe um modelo Coqui local ou nome de modelo instalado.")
-
+    def _synthesize_with_python(self, text: str, config: TTSConfig, model: str, python_exe: str) -> str:
         wav_path = _temp_wav_path()
         script = _write_temp_script(
             [
-                "import sys",
-                "import os",
+                "import os, sys",
                 "os.environ.setdefault('COQUI_TOS_AGREED', '1')",
                 "from TTS.api import TTS",
                 "text, model, out, language, speaker_wav = sys.argv[1:6]",
@@ -325,53 +247,83 @@ class CoquiTTS(TTSProvider):
                     config.coqui_language or "pt",
                     config.coqui_speaker_wav.strip(),
                 ],
-                timeout=240,
-                error_prefix="Coqui portatil falhou",
+                timeout=config.timeout_seconds,
+                error_prefix=f"{config.provider} falhou",
             )
         finally:
             cleanup_wav(str(script))
         return wav_path
 
-    def _coqui_kwargs(self, text: str, wav_path: str, model: str, config: TTSConfig) -> dict:
-        kwargs = {"text": text, "file_path": wav_path}
-        if "xtts" in model.lower():
-            if not config.coqui_speaker_wav.strip():
-                raise TTSError("XTTS v2 precisa de um WAV curto de referencia em `Speaker WAV`.")
-            kwargs["speaker_wav"] = config.coqui_speaker_wav.strip()
-            kwargs["language"] = config.coqui_language or "pt"
-        elif config.coqui_speaker_wav.strip():
-            kwargs["speaker_wav"] = config.coqui_speaker_wav.strip()
-            if config.coqui_language:
-                kwargs["language"] = config.coqui_language
-        return kwargs
+
+class EspeakTTS(TTSProvider):
+    def synthesize(self, text: str, config: TTSConfig, log: LogCallback | None = None) -> str:
+        wav_path = _temp_wav_path()
+        _run_checked(
+            [
+                config.espeak_exe.strip() or "espeak-ng",
+                "-v",
+                config.espeak_voice.strip() or config.voice.strip() or "pt-br",
+                "-s",
+                str(int(170 * _clamp(config.speed, 0.5, 1.8))),
+                "-w",
+                wav_path,
+                text,
+            ],
+            timeout=config.timeout_seconds,
+            error_prefix="eSpeak NG falhou",
+        )
+        return wav_path
+
+
+class FestivalTTS(TTSProvider):
+    def synthesize(self, text: str, config: TTSConfig, log: LogCallback | None = None) -> str:
+        wav_path = _temp_wav_path()
+        _run_checked(
+            [config.festival_exe.strip() or "text2wave", "-o", wav_path],
+            input_text=text,
+            timeout=config.timeout_seconds,
+            error_prefix="Festival falhou",
+        )
+        return wav_path
+
+
+class Mimic3TTS(TTSProvider):
+    def synthesize(self, text: str, config: TTSConfig, log: LogCallback | None = None) -> str:
+        wav_path = _temp_wav_path()
+        command = [config.mimic3_exe.strip() or "mimic3"]
+        if config.mimic3_voice.strip():
+            command.extend(["--voice", config.mimic3_voice.strip()])
+        command.extend(["--output", wav_path, text])
+        _run_checked(command, timeout=config.timeout_seconds, error_prefix="Mimic 3 falhou")
+        return wav_path
 
 
 class F5TTS(TTSProvider):
-    def synthesize(self, text: str, config: TTSConfig) -> str:
-        exe = config.f5_exe.strip() or "f5-tts_infer-cli"
-        ref_audio = config.f5_ref_audio.strip()
-        ref_text = config.f5_ref_text.strip()
-        if not ref_audio:
-            raise TTSError("F5-TTS precisa de `Ref audio` com um WAV de referencia.")
+    def synthesize(self, text: str, config: TTSConfig, log: LogCallback | None = None) -> str:
+        if not config.f5_ref_audio.strip():
+            raise TTSError("F5-TTS precisa de um WAV de referencia.")
 
         out_dir = Path(tempfile.mkdtemp(prefix="f5_tts_"))
         out_name = "f5_generation.wav"
-        command = [
-            exe,
-            "--model",
-            config.f5_model or "F5TTS_v1_Base",
-            "--ref_audio",
-            ref_audio,
-            "--ref_text",
-            ref_text,
-            "--gen_text",
-            text,
-            "--output_dir",
-            str(out_dir),
-            "--output_file",
-            out_name,
-        ]
-        _run_checked(command, timeout=300, error_prefix="F5-TTS falhou")
+        _run_checked(
+            [
+                config.f5_exe.strip() or "f5-tts_infer-cli",
+                "--model",
+                config.f5_model.strip() or "F5TTS_v1_Base",
+                "--ref_audio",
+                config.f5_ref_audio.strip(),
+                "--ref_text",
+                config.f5_ref_text.strip(),
+                "--gen_text",
+                text,
+                "--output_dir",
+                str(out_dir),
+                "--output_file",
+                out_name,
+            ],
+            timeout=config.timeout_seconds,
+            error_prefix="F5-TTS falhou",
+        )
         expected = out_dir / out_name
         if expected.exists():
             return str(expected)
@@ -381,191 +333,175 @@ class F5TTS(TTSProvider):
         return str(wavs[0])
 
 
-class EdgeTTSOnline(TTSProvider):
-    def synthesize(self, text: str, config: TTSConfig) -> str:
-        try:
-            import edge_tts
-        except ImportError as exc:
-            raise TTSError("Instale o pacote `edge-tts` (pip install edge-tts>=7.0) para usar Edge TTS.") from exc
+class MaryTTSTTS(TTSProvider):
+    def synthesize(self, text: str, config: TTSConfig, log: LogCallback | None = None) -> str:
+        base = config.marytts_url.strip() or "http://localhost:59125/process"
+        params = {
+            "INPUT_TEXT": text,
+            "INPUT_TYPE": "TEXT",
+            "OUTPUT_TYPE": "AUDIO",
+            "AUDIO": "WAVE_FILE",
+            "LOCALE": config.marytts_locale.strip() or "pt_BR",
+        }
+        if config.marytts_voice.strip():
+            params["VOICE"] = config.marytts_voice.strip()
+        separator = "&" if "?" in base else "?"
+        request = urllib.request.Request(
+            base + separator + urllib.parse.urlencode(params),
+            headers={"User-Agent": "NocturneVoice/1.0"},
+        )
+        return _request_audio_to_wav(request, config.ffmpeg_exe, config.timeout_seconds)
 
-        mp3_path = tempfile.NamedTemporaryFile(prefix="edge_tts_", suffix=".mp3", delete=False)
-        mp3_path.close()
+
+class RHVoiceTTS(TTSProvider):
+    def synthesize(self, text: str, config: TTSConfig, log: LogCallback | None = None) -> str:
         wav_path = _temp_wav_path()
-        try:
-            communicate = edge_tts.Communicate(text, config.edge_voice or "pt-BR-FranciscaNeural")
-            import asyncio as _asyncio
-            _loop = _asyncio.new_event_loop()
-            try:
-                _loop.run_until_complete(communicate.save(mp3_path.name))
-            finally:
-                _loop.close()
-            _convert_audio_to_wav(mp3_path.name, wav_path, config.ffmpeg_exe)
-        except TTSError:
-            raise
-        except Exception as exc:
-            raise TTSError(f"Edge TTS falhou: {exc}") from exc
-        finally:
-            cleanup_wav(mp3_path.name)
+        command = [config.rhvoice_exe.strip() or "RHVoice-test", "-o", wav_path]
+        if config.rhvoice_voice.strip():
+            command.extend(["-p", config.rhvoice_voice.strip()])
+        _run_checked(command, input_text=text, timeout=config.timeout_seconds, error_prefix="RHVoice falhou")
         return wav_path
 
 
-class TikTokAPIOnlineTTS(TTSProvider):
-    def synthesize(self, text: str, config: TTSConfig) -> str:
-        template = config.tiktok_api_url.strip()
+class EndpointTTS(TTSProvider):
+    def synthesize(self, text: str, config: TTSConfig, log: LogCallback | None = None) -> str:
+        template = config.endpoint_url.strip()
         if not template:
-            raise TTSError("Informe a URL da API TikTok TTS local/remota.")
+            raise TTSError(f"{config.provider} precisa de uma URL de endpoint ou comando externo.")
 
-        voice_id = _choice_id(config.tiktok_voice or "br_001")
-        quoted_text = urllib.parse.quote_plus(text)
-        quoted_voice = urllib.parse.quote_plus(voice_id)
+        voice = config.voice.strip()
         if "{text}" in template or "{voice}" in template:
-            url = template.replace("{text}", quoted_text).replace("{voice}", quoted_voice)
+            url = template.replace("{text}", urllib.parse.quote_plus(text)).replace("{voice}", urllib.parse.quote_plus(voice))
             request = urllib.request.Request(url, headers={"User-Agent": "NocturneVoice/1.0"})
         else:
-            body = json.dumps({"text": text, "text_speaker": voice_id, "voice": voice_id, "output_format": "binary"}).encode("utf-8")
-            request = urllib.request.Request(template, data=body, headers={"User-Agent": "NocturneVoice/1.0", "Content-Type": "application/json"})
-        return _request_audio_to_wav(request, config.ffmpeg_exe)
-
-
-class TikTokAgusTTS(TTSProvider):
-    def synthesize(self, text: str, config: TTSConfig) -> str:
-        voice_id = _choice_id(config.tiktok_voice or "br_001")
-        body = urllib.parse.urlencode(
-            {
-                "req_text": text,
-                "speaker_map_type": "0",
-                "aid": "1233",
-                "text_speaker": voice_id,
+            payload = {
+                config.endpoint_text_field.strip() or "text": text,
+                config.endpoint_voice_field.strip() or "voice": voice,
+                "speed": config.speed,
             }
-        ).encode("utf-8")
-        headers = _tiktok_headers(config.tiktok_session_id)
-        headers["Content-Type"] = "application/x-www-form-urlencoded; charset=utf-8"
-        request = urllib.request.Request(TIKTOK_AGUS_ENDPOINT, data=body, headers=headers, method="POST")
-        return _request_tiktok_json_to_wav(request, config.ffmpeg_exe)
+            method = (config.endpoint_method or "POST").upper()
+            if method == "GET":
+                separator = "&" if "?" in template else "?"
+                template = template + separator + urllib.parse.urlencode(payload)
+                data = None
+            else:
+                data = json.dumps(payload).encode("utf-8")
+            request = urllib.request.Request(
+                template,
+                data=data,
+                headers={"User-Agent": "NocturneVoice/1.0", "Content-Type": "application/json"},
+                method=method,
+            )
+        return _request_audio_to_wav(request, config.ffmpeg_exe, config.timeout_seconds)
 
 
-class TikTokSteveTTS(TTSProvider):
-    def synthesize(self, text: str, config: TTSConfig) -> str:
-        session_id = config.tiktok_session_id.strip()
-        if not session_id:
-            raise TTSError("Steve0929/tiktok-tts precisa do `sessionid` do TikTok.")
-
-        voice_id = _choice_id(config.tiktok_voice or "br_001")
-        base = config.tiktok_endpoint.strip() or TIKTOK_DEFAULT_ENDPOINT
-        req_text = urllib.parse.quote(_prepare_tiktok_text(text), safe="+")
-        query = f"text_speaker={urllib.parse.quote_plus(voice_id)}&req_text={req_text}&speaker_map_type=0&aid=1233"
-        request = urllib.request.Request(f"{base.rstrip('/')}?{query}", headers=_tiktok_headers(session_id), method="POST")
-        return _request_tiktok_json_to_wav(request, config.ffmpeg_exe)
-
-
-class NaturalReaderFreeTTS(TTSProvider):
-    def synthesize(self, text: str, config: TTSConfig) -> str:
-        template = config.naturalreader_api_url.strip()
-        if not template:
-            raise TTSError("NaturalReader Free nao fornece API publica. Informe uma URL/endpoint proprio que retorne audio.")
-        quoted_text = urllib.parse.quote_plus(text)
-        if "{text}" in template or "{voice}" in template:
-            url = template.replace("{text}", quoted_text).replace("{voice}", urllib.parse.quote_plus(config.voice))
-            request = urllib.request.Request(url, headers={"User-Agent": "NocturneVoice/1.0"})
-        else:
-            body = json.dumps({"text": text, "voice": config.voice}).encode("utf-8")
-            request = urllib.request.Request(template, data=body, headers={"User-Agent": "NocturneVoice/1.0", "Content-Type": "application/json"})
-        return _request_audio_to_wav(request, config.ffmpeg_exe)
-
-
-class OpenAIOnlineTTS(TTSProvider):
-    def synthesize(self, text: str, config: TTSConfig) -> str:
-        api_key = config.openai_api_key.strip()
-        if not api_key:
-            raise TTSError("Informe a API key da OpenAI para usar este provedor online.")
-
-        try:
-            from openai import OpenAI
-        except Exception as exc:
-            raise TTSError("Instale o pacote opcional `openai` para usar OpenAI TTS.") from exc
+class CommandTemplateTTS(TTSProvider):
+    def synthesize(self, text: str, config: TTSConfig, log: LogCallback | None = None) -> str:
+        if not config.command_template.strip():
+            hint = EXTERNAL_COMMAND_HINTS.get(config.provider, "Configure um comando que gere WAV em {output}.")
+            raise TTSError(hint)
 
         wav_path = _temp_wav_path()
-        client = OpenAI(api_key=api_key)
-        try:
-            with client.audio.speech.with_streaming_response.create(
-                model="gpt-4o-mini-tts",
-                voice=config.openai_voice or "alloy",
-                input=text,
-                response_format="wav",
-            ) as response:
-                response.stream_to_file(wav_path)
-        except Exception as exc:
-            raise TTSError(f"Falha no OpenAI TTS: {exc}") from exc
+        command = config.command_template.format(
+            text=text,
+            output=wav_path,
+            voice=config.voice.strip(),
+            speed=config.speed,
+            python=config.python_exe.strip() or sys.executable,
+        )
+        _run_shell_checked(command, timeout=config.timeout_seconds, error_prefix=f"{config.provider} falhou")
+        if not Path(wav_path).exists() or Path(wav_path).stat().st_size == 0:
+            raise TTSError(f"{config.provider} nao gerou o arquivo WAV esperado.")
         return wav_path
 
 
-class RVCTTS(TTSProvider):
-    """RVC (Retrieval-based Voice Conversion) — converte audio base para a voz do modelo .pth."""
+class TTSManager:
+    PROVIDERS = PROVIDERS
 
-    def __init__(self) -> None:
-        self._rvc = None
-        self._model_path = ""
-        self._index_path = ""
+    def __init__(self, log: LogCallback | None = None) -> None:
+        self._log = log
+        coqui_provider = CoquiLikeTTS()
+        self._providers: dict[str, TTSProvider] = {
+            "Balabolka": CommandTemplateTTS(),
+            "NaturalReader": EndpointTTS(),
+            "TTSReader": EndpointTTS(),
+            "Piper TTS": PiperTTS(),
+            "Kokoro TTS": KokoroTTS(),
+            "XTTS-v2": coqui_provider,
+            "Coqui TTS": coqui_provider,
+            "Chatterbox TTS": CommandTemplateTTS(),
+            "pyttsx3": Pyttsx3TTS(),
+            "eSpeak NG": EspeakTTS(),
+            "Festival": FestivalTTS(),
+            "Mimic 3": Mimic3TTS(),
+            "Tortoise TTS": CommandTemplateTTS(),
+            "ChatTTS": CommandTemplateTTS(),
+            "F5-TTS": F5TTS(),
+            "OpenVoice": CommandTemplateTTS(),
+            "VITS": coqui_provider,
+            "YourTTS": coqui_provider,
+            "Glow-TTS": coqui_provider,
+            "MaryTTS": MaryTTSTTS(),
+            "RHVoice": RHVoiceTTS(),
+        }
 
     def synthesize(self, text: str, config: TTSConfig) -> str:
-        model_path = config.rvc_model.strip()
-        if not model_path:
-            raise TTSError("Selecione o arquivo .pth do modelo RVC no campo 'Modelo RVC (.pth)'.")
+        provider = self._providers.get(config.provider)
+        if provider is None:
+            raise TTSError(f"Provedor TTS desconhecido: {config.provider}")
+        self._emit(f"TTS: gerando audio com {config.provider}")
+        wav_path = provider.synthesize(text, config, self._emit)
+        if not config.rvc_enabled:
+            return wav_path
 
-        base_wav = self._generate_base_audio(text, config)
+        self._emit("RVC: convertendo voz")
+        converter = RVCConverter()
+        try:
+            return converter.convert(wav_path, config)
+        except Exception:
+            cleanup_wav(wav_path)
+            raise
 
-        portable_python = _valid_external_python(config.coqui_python)
+    def _emit(self, message: str) -> None:
+        if self._log:
+            self._log(message)
+
+
+class RVCConverter:
+    def convert(self, input_wav: str, config: TTSConfig) -> str:
+        if not config.rvc_model.strip():
+            raise TTSError("Ative RVC somente depois de selecionar o modelo .pth.")
+
+        portable_python = _valid_external_python(config.python_exe)
+        output_wav = _temp_wav_path()
         if portable_python:
-            return self._convert_with_python(base_wav, config, portable_python)
+            self._convert_with_python(input_wav, output_wav, config, portable_python)
+            cleanup_wav(input_wav)
+            return output_wav
 
+        _require_compatible_python("RVC")
         try:
             from rvc_python.infer import RVCInference
         except ImportError as exc:
-            cleanup_wav(base_wav)
-            raise TTSError(
-                "rvc-python nao esta instalado. Use o botao 'Instalar RVC no Python 3.10' na GUI."
-            ) from exc
+            raise TTSError("RVC requer `rvc-python` em Python 3.10/3.11 ou Python portatil configurado.") from exc
 
-        output_wav = _temp_wav_path()
         try:
-            index_path = config.rvc_index.strip() or None
-            key = (model_path, index_path or "")
-            if self._rvc is None or (self._model_path, self._index_path) != key:
-                device = config.rvc_device.strip() or "cpu"
-                self._rvc = RVCInference(device=device)
-                self._rvc.load_model(model_path, index_path=index_path)
-                self._model_path, self._index_path = key
-            self._rvc.infer_file(
-                base_wav,
+            rvc = RVCInference(device=config.rvc_device.strip() or "cpu")
+            rvc.load_model(config.rvc_model.strip(), index_path=config.rvc_index.strip() or None)
+            rvc.infer_file(
+                input_wav,
                 output_wav,
                 f0_up_key=int(config.rvc_pitch),
                 index_rate=float(config.rvc_index_rate),
             )
-        except TTSError:
-            cleanup_wav(output_wav)
-            raise
         except Exception as exc:
             cleanup_wav(output_wav)
-            raise TTSError(f"RVC falhou na conversao de voz: {exc}") from exc
+            raise TTSError(f"RVC falhou: {exc}") from exc
         finally:
-            cleanup_wav(base_wav)
-
+            cleanup_wav(input_wav)
         return output_wav
 
-    def _generate_base_audio(self, text: str, config: TTSConfig) -> str:
-        """Gera audio base via Windows SAPI para ser convertido pelo RVC."""
-        try:
-            sapi_config = TTSConfig(
-                provider="Windows SAPI (local)",
-                voice=config.voice,
-                speed=config.speed,
-            )
-            return WindowsSapiTTS().synthesize(text, sapi_config)
-        except Exception as exc:
-            raise TTSError(f"RVC: falha ao gerar audio base (Windows SAPI): {exc}") from exc
-
-    def _convert_with_python(self, base_wav: str, config: TTSConfig, python_exe: str) -> str:
-        output_wav = _temp_wav_path()
+    def _convert_with_python(self, input_wav: str, output_wav: str, config: TTSConfig, python_exe: str) -> None:
         script = _write_temp_script(
             [
                 "import sys",
@@ -581,66 +517,19 @@ class RVCTTS(TTSProvider):
                 [
                     python_exe,
                     str(script),
-                    base_wav,
+                    input_wav,
                     output_wav,
                     config.rvc_model.strip(),
-                    config.rvc_index.strip() or "",
+                    config.rvc_index.strip(),
                     config.rvc_device.strip() or "cpu",
                     str(int(config.rvc_pitch)),
                     str(float(config.rvc_index_rate)),
                 ],
-                timeout=300,
+                timeout=config.timeout_seconds,
                 error_prefix="RVC portatil falhou",
             )
         finally:
             cleanup_wav(str(script))
-            cleanup_wav(base_wav)
-        return output_wav
-
-
-class TTSManager:
-    PROVIDERS = (
-        "Windows SAPI (local)",
-        "RVC (Voice Conversion local)",
-        "Kokoro (local opcional)",
-        "Bark (local opcional)",
-        "MeloTTS (local opcional)",
-        "Piper TTS (local opcional)",
-        "Coqui TTS / XTTS v2 (local opcional)",
-        "F5-TTS (local opcional)",
-        "eSpeak NG (local opcional)",
-        "Edge TTS (online opcional)",
-        "TikTok API URL (online opcional)",
-        "TikTok Agus direto (online nao oficial)",
-        "TikTok Steve direto (online nao oficial)",
-        "NaturalReader Free (endpoint externo)",
-        "OpenAI TTS (online opcional)",
-    )
-
-    def __init__(self) -> None:
-        self._providers: dict[str, TTSProvider] = {
-            "Windows SAPI (local)": WindowsSapiTTS(),
-            "RVC (Voice Conversion local)": RVCTTS(),
-            "Kokoro (local opcional)": KokoroTTS(),
-            "Bark (local opcional)": BarkTTS(),
-            "MeloTTS (local opcional)": MeloTTS(),
-            "Piper TTS (local opcional)": PiperTTS(),
-            "Coqui TTS / XTTS v2 (local opcional)": CoquiTTS(),
-            "F5-TTS (local opcional)": F5TTS(),
-            "eSpeak NG (local opcional)": EspeakTTS(),
-            "Edge TTS (online opcional)": EdgeTTSOnline(),
-            "TikTok API URL (online opcional)": TikTokAPIOnlineTTS(),
-            "TikTok Agus direto (online nao oficial)": TikTokAgusTTS(),
-            "TikTok Steve direto (online nao oficial)": TikTokSteveTTS(),
-            "NaturalReader Free (endpoint externo)": NaturalReaderFreeTTS(),
-            "OpenAI TTS (online opcional)": OpenAIOnlineTTS(),
-        }
-
-    def synthesize(self, text: str, config: TTSConfig) -> str:
-        provider = self._providers.get(config.provider)
-        if provider is None:
-            raise TTSError(f"Provedor TTS desconhecido: {config.provider}")
-        return provider.synthesize(text, config)
 
 
 def list_windows_voices() -> list[str]:
@@ -648,13 +537,26 @@ def list_windows_voices() -> list[str]:
         import pyttsx3
 
         engine = pyttsx3.init()
-        return [voice.name for voice in engine.getProperty("voices")]
+        return [str(voice.name) for voice in engine.getProperty("voices")]
     except Exception:
         return []
 
 
+def compatibility_message(provider: str, python_exe: str = "") -> str:
+    version = _python_version_tuple(python_exe) if python_exe else sys.version_info[:3]
+    label = ".".join(str(part) for part in version[:3])
+    heavy = {"XTTS-v2", "Coqui TTS", "VITS", "YourTTS", "Glow-TTS", "F5-TTS", "Tortoise TTS", "ChatTTS", "OpenVoice", "Chatterbox TTS", "RVC"}
+    if provider in heavy and version[:2] not in {(3, 10), (3, 11)}:
+        return f"Python {label} pode ser incompativel com {provider}. Use Python 3.10 ou 3.11 portatil."
+    if provider in {"pyttsx3", "Piper TTS", "eSpeak NG", "Festival", "Mimic 3", "MaryTTS", "RHVoice"}:
+        return f"Python {label} OK. Este provedor depende principalmente do executavel/pacote configurado."
+    return f"Python {label}. Configure endpoint ou comando externo conforme o provedor."
+
+
 def wav_to_discord_pcm(wav_path: str) -> bytes:
     samples, sample_rate = _read_wav_as_float32(wav_path)
+    if samples.size == 0:
+        raise TTSError("O WAV gerado esta vazio.")
 
     if sample_rate != TARGET_RATE:
         duration = samples.size / float(sample_rate)
@@ -667,29 +569,49 @@ def wav_to_discord_pcm(wav_path: str) -> bytes:
     return np.clip(stereo * 32767.0, -32768, 32767).astype(np.int16).tobytes()
 
 
-def _read_wav_as_float32(wav_path: str) -> tuple:
-    """Return (samples_mono_float32, sample_rate). Tries wave module first, then soundfile."""
+def cleanup_wav(path: str) -> None:
+    try:
+        Path(path).unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
+def _coqui_model_for(config: TTSConfig) -> str:
+    return config.coqui_model.strip() or COQUI_MODEL_DEFAULTS.get(config.provider, "")
+
+
+def _coqui_kwargs(text: str, wav_path: str, model: str, config: TTSConfig) -> dict[str, str]:
+    kwargs = {"text": text, "file_path": wav_path}
+    lower_model = model.lower()
+    if "xtts" in lower_model or "your_tts" in lower_model or "yourtts" in lower_model:
+        if not config.coqui_speaker_wav.strip():
+            raise TTSError(f"{config.provider} precisa de um Speaker WAV curto.")
+        kwargs["speaker_wav"] = config.coqui_speaker_wav.strip()
+        kwargs["language"] = config.coqui_language.strip() or "pt"
+    elif config.coqui_speaker_wav.strip():
+        kwargs["speaker_wav"] = config.coqui_speaker_wav.strip()
+        if config.coqui_language.strip():
+            kwargs["language"] = config.coqui_language.strip()
+    return kwargs
+
+
+def _read_wav_as_float32(wav_path: str) -> tuple[np.ndarray, int]:
     try:
         return _wave_module_read(wav_path)
     except Exception:
         pass
     try:
         import soundfile as sf
+
         data, rate = sf.read(wav_path, dtype="float32", always_2d=False)
         if data.ndim > 1:
             data = data.mean(axis=1)
         return data.astype(np.float32), int(rate)
-    except ImportError:
-        pass
-    except Exception:
-        pass
-    raise TTSError(
-        "Nao foi possivel ler o WAV gerado. Instale soundfile ou verifique o provedor TTS selecionado."
-    )
+    except Exception as exc:
+        raise TTSError("Nao foi possivel ler o WAV gerado. Instale soundfile ou verifique o provedor.") from exc
 
 
-def _wave_module_read(wav_path: str) -> tuple:
-    """Read standard PCM WAV via Python wave module. Returns (samples_mono_float32, sample_rate)."""
+def _wave_module_read(wav_path: str) -> tuple[np.ndarray, int]:
     with wave.open(wav_path, "rb") as wav_file:
         channels = wav_file.getnchannels()
         sample_width = wav_file.getsampwidth()
@@ -703,11 +625,7 @@ def _wave_module_read(wav_path: str) -> tuple:
         samples = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
     elif sample_width == 3:
         raw = np.frombuffer(frames, dtype=np.uint8).reshape(-1, 3)
-        i32 = (
-            raw[:, 0].astype(np.int32)
-            | (raw[:, 1].astype(np.int32) << 8)
-            | (raw[:, 2].astype(np.int32) << 16)
-        )
+        i32 = raw[:, 0].astype(np.int32) | (raw[:, 1].astype(np.int32) << 8) | (raw[:, 2].astype(np.int32) << 16)
         i32[i32 >= 0x800000] -= 0x1000000
         samples = i32.astype(np.float32) / 8388608.0
     elif sample_width == 4:
@@ -717,7 +635,7 @@ def _wave_module_read(wav_path: str) -> tuple:
         else:
             samples = np.frombuffer(frames, dtype=np.int32).astype(np.float32) / 2147483648.0
     else:
-        raise TTSError(f"Formato WAV {sample_width * 8}-bit nao suportado.")
+        raise TTSError(f"WAV {sample_width * 8}-bit nao suportado.")
 
     if channels > 1:
         samples = samples.reshape(-1, channels).mean(axis=1)
@@ -725,20 +643,17 @@ def _wave_module_read(wav_path: str) -> tuple:
 
 
 def _temp_wav_path() -> str:
-    handle = tempfile.NamedTemporaryFile(prefix="discord_tts_", suffix=".wav", delete=False)
+    handle = tempfile.NamedTemporaryFile(prefix="voice_tts_", suffix=".wav", delete=False)
     handle.close()
     return handle.name
 
 
-def cleanup_wav(path: str) -> None:
-    try:
-        Path(path).unlink(missing_ok=True)
-    except Exception:
-        pass
-
-
-def _choice_id(value: str) -> str:
-    return value.split(" - ", 1)[0].strip()
+def _write_temp_script(lines: list[str]) -> Path:
+    handle = tempfile.NamedTemporaryFile(prefix="tts_provider_", suffix=".py", delete=False)
+    handle.close()
+    script = Path(handle.name)
+    script.write_text("\n".join(lines), encoding="utf-8")
+    return script
 
 
 def _valid_external_python(value: str) -> str:
@@ -753,70 +668,73 @@ def _valid_external_python(value: str) -> str:
     return str(path)
 
 
-def _speaker_id(speaker_ids, speaker: str):
-    if speaker and speaker in speaker_ids:
-        return speaker_ids[speaker]
-    return next(iter(speaker_ids.values()))
+def _require_compatible_python(provider: str) -> None:
+    if provider in {"XTTS-v2", "Coqui TTS", "VITS", "YourTTS", "Glow-TTS", "F5-TTS", "Tortoise TTS", "ChatTTS", "OpenVoice", "Chatterbox TTS", "RVC"}:
+        if sys.version_info[:2] not in {(3, 10), (3, 11)}:
+            raise TTSError(f"{provider} costuma exigir Python 3.10 ou 3.11. Configure o Python portatil em Ferramentas.")
 
 
-def _write_temp_script(lines: list[str]) -> Path:
-    script_path = tempfile.NamedTemporaryFile(prefix="tts_provider_", suffix=".py", delete=False)
-    script_path.close()
-    script = Path(script_path.name)
-    script.write_text("\n".join(lines), encoding="utf-8")
-    return script
-
-
-def _run_checked(command: list[str], timeout: int, error_prefix: str = "Comando TTS falhou") -> None:
+def _python_version_tuple(python_exe: str) -> tuple[int, int, int]:
     try:
-        subprocess.run(command, check=True, capture_output=True, text=True, timeout=timeout)
+        output = subprocess.check_output(
+            [python_exe, "-c", "import sys; print('.'.join(map(str, sys.version_info[:3])))"],
+            text=True,
+            timeout=10,
+        ).strip()
+        parts = [int(piece) for piece in output.split(".")[:3]]
+        while len(parts) < 3:
+            parts.append(0)
+        return tuple(parts[:3])
+    except Exception:
+        return (0, 0, 0)
+
+
+def _run_checked(
+    command: list[str],
+    timeout: int,
+    error_prefix: str,
+    input_text: str | None = None,
+) -> None:
+    try:
+        subprocess.run(command, input=input_text, check=True, capture_output=True, text=True, timeout=timeout)
     except subprocess.CalledProcessError as exc:
-        detail = (exc.stdout or "") + "\n" + (exc.stderr or "")
-        raise TTSError(f"{error_prefix}: {detail[-900:]}") from exc
+        detail = ((exc.stdout or "") + "\n" + (exc.stderr or "")).strip()
+        raise TTSError(f"{error_prefix}: {detail[-1200:] or exc}") from exc
     except Exception as exc:
         raise TTSError(f"{error_prefix}: {exc}") from exc
 
 
-def _request_audio_to_wav(request: urllib.request.Request, ffmpeg_exe: str) -> str:
+def _run_shell_checked(command: str, timeout: int, error_prefix: str) -> None:
     try:
-        with urllib.request.urlopen(request, timeout=80) as response:
+        subprocess.run(command, check=True, capture_output=True, text=True, timeout=timeout, shell=True)
+    except subprocess.CalledProcessError as exc:
+        detail = ((exc.stdout or "") + "\n" + (exc.stderr or "")).strip()
+        raise TTSError(f"{error_prefix}: {detail[-1200:] or exc}") from exc
+    except Exception as exc:
+        raise TTSError(f"{error_prefix}: {exc}") from exc
+
+
+def _request_audio_to_wav(request: urllib.request.Request, ffmpeg_exe: str, timeout: int) -> str:
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
             content_type = response.headers.get("Content-Type", "")
             data = response.read()
     except Exception as exc:
         raise TTSError(f"Falha ao baixar audio TTS: {exc}") from exc
-    return _audio_bytes_to_wav(data, content_type, ffmpeg_exe)
+    return _audio_bytes_to_wav(data, content_type, ffmpeg_exe, timeout)
 
 
-def _request_tiktok_json_to_wav(request: urllib.request.Request, ffmpeg_exe: str) -> str:
-    try:
-        with urllib.request.urlopen(request, timeout=80) as response:
-            raw = response.read()
-    except Exception as exc:
-        raise TTSError(f"Falha no endpoint TikTok TTS: {exc}") from exc
-    try:
-        payload = json.loads(raw.decode("utf-8"))
-    except Exception as exc:
-        raise TTSError("TikTok retornou resposta invalida.") from exc
-    status = int(payload.get("status_code", -1))
-    if status != 0:
-        raise TTSError(f"TikTok recusou a sintese. status_code={status}. Verifique sessionid e voz.")
-    encoded = payload.get("data", {}).get("v_str") or payload.get("v_str") or payload.get("audio_base64")
-    if not encoded:
-        raise TTSError("TikTok nao retornou audio base64.")
-    return _audio_bytes_to_wav(base64.b64decode(encoded), "audio/mpeg", ffmpeg_exe)
-
-
-def _audio_bytes_to_wav(data: bytes, content_type: str, ffmpeg_exe: str) -> str:
-    maybe_json = data[:1] in (b"{", b"[") or "json" in content_type.lower()
-    if maybe_json:
+def _audio_bytes_to_wav(data: bytes, content_type: str, ffmpeg_exe: str, timeout: int) -> str:
+    if data[:1] in (b"{", b"[") or "json" in content_type.lower():
         try:
             payload = json.loads(data.decode("utf-8"))
-            encoded = payload.get("audio_base64") or payload.get("audio") or payload.get("data", {}).get("v_str")
+            encoded = payload.get("audio_base64") or payload.get("audio") or payload.get("wav") or payload.get("data", {}).get("v_str")
             if encoded:
                 data = base64.b64decode(encoded)
                 content_type = "audio/mpeg"
         except Exception:
             pass
+
     wav_path = _temp_wav_path()
     if data.startswith(b"RIFF") or "wav" in content_type.lower():
         Path(wav_path).write_bytes(data)
@@ -826,13 +744,13 @@ def _audio_bytes_to_wav(data: bytes, content_type: str, ffmpeg_exe: str) -> str:
     source.close()
     Path(source.name).write_bytes(data)
     try:
-        _convert_audio_to_wav(source.name, wav_path, ffmpeg_exe)
+        _convert_audio_to_wav(source.name, wav_path, ffmpeg_exe, timeout)
     finally:
         cleanup_wav(source.name)
     return wav_path
 
 
-def _convert_audio_to_wav(source_path: str, wav_path: str, ffmpeg_exe: str) -> None:
+def _convert_audio_to_wav(source_path: str, wav_path: str, ffmpeg_exe: str, timeout: int) -> None:
     _run_checked(
         [
             ffmpeg_exe or "ffmpeg",
@@ -845,20 +763,10 @@ def _convert_audio_to_wav(source_path: str, wav_path: str, ffmpeg_exe: str) -> N
             "24000",
             wav_path,
         ],
-        timeout=120,
+        timeout=timeout,
         error_prefix="FFmpeg falhou ao converter audio",
     )
 
 
-def _prepare_tiktok_text(text: str) -> str:
-    return text.replace("+", "plus").replace("&", "and").replace(" ", "+")
-
-
-def _tiktok_headers(session_id: str) -> dict[str, str]:
-    headers = {
-        "User-Agent": "com.zhiliaoapp.musically/2022600030 (Linux; U; Android 7.1.2; es_ES; SM-G988N; Build/NRD90M;tt-ok/3.12.13.1)",
-        "Accept-Encoding": "identity",
-    }
-    if session_id.strip():
-        headers["Cookie"] = f"sessionid={session_id.strip()}"
-    return headers
+def _clamp(value: float, minimum: float, maximum: float) -> float:
+    return max(minimum, min(maximum, float(value)))

@@ -8,7 +8,7 @@ Pillow>=10.0
 # Provedores TTS locais opcionais:
 # kokoro>=0.9.4
 # soundfile>=0.12
-# edge-tts>=7.0
-# openai>=1.0
-# Coqui/Bark/MeloTTS/F5-TTS sao opcionais e instalados pela GUI em tools/python310,
-# porque exigem Python/PyTorch compativeis e ficariam grandes demais no executavel.
+# TTS==0.22.0
+# rvc-python
+# f5-tts
+# Motores pesados e modelos grandes devem ficar em tools/python310 ou em instalacoes externas.

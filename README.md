@@ -1,18 +1,13 @@
-# Discord Local Voice TTS Bot
+# Nocturne Voice
 
-Aplicativo local em Python que captura o microfone, transcreve a fala com Vosk e faz um bot Discord hospedado no proprio PC falar o texto transcrito em uma call usando TTS.
+Aplicativo local em Python/Tkinter para transcrever o microfone com Vosk e fazer um bot Discord falar o texto em uma call usando TTS. O fluxo foi simplificado para quatro areas principais:
 
-## O que este app faz
+- `Conexao`: token do bot, usuario alvo, microfone, modelo Vosk e texto manual.
+- `TTS`: escolha do motor de voz e configuracoes do provedor atual.
+- `RVC`: conversao de voz opcional depois de qualquer TTS.
+- `Ferramentas` e `Logs`: instalacao, compatibilidade de Python e acompanhamento de erros.
 
-- Roda um bot Discord local enquanto o app estiver aberto.
-- Detecta a call onde o usuario configurado esta.
-- Entra nessa call com o bot.
-- Captura o microfone selecionado.
-- Transcreve a fala localmente com Vosk.
-- Converte o texto para voz com um provedor TTS selecionavel.
-- Reproduz a fala TTS na call do Discord.
-
-## Instalacao
+## Instalar
 
 ```powershell
 python -m venv .venv
@@ -21,208 +16,102 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-## Modelo Vosk em portugues
-
-Baixe e extraia um modelo Vosk de portugues. Exemplo:
-
-```powershell
-New-Item -ItemType Directory -Force .\models
-
-Invoke-WebRequest `
-  -Uri "https://alphacephei.com/vosk/models/vosk-model-small-pt-0.3.zip" `
-  -OutFile ".\models\vosk-model-small-pt-0.3.zip"
-
-Expand-Archive `
-  ".\models\vosk-model-small-pt-0.3.zip" `
-  -DestinationPath ".\models" `
-  -Force
-```
-
-No app, selecione a pasta extraida:
-
-```text
-C:\Users\GUH\Downloads\VOICE\models\vosk-model-small-pt-0.3
-```
-
-## Criar e convidar o bot
-
-1. Acesse o Discord Developer Portal.
-2. Crie uma aplicacao.
-3. Va em `Bot` e crie/copie o `Token`.
-4. Va em `OAuth2 > URL Generator`.
-5. Em `Scopes`, marque `bot`.
-6. Em `Bot Permissions`, marque `View Channels`, `Connect` e `Speak`.
-7. Abra a URL gerada e convide o bot para o servidor.
-
-Importante: `Application ID`, `Client ID` e `Public Key` nao sao o token do bot. Se o app mostrar `Token invalido` ou `Improper token has been passed`, volte em `Bot > Token`, clique em `Reset Token` e cole o token novo no app.
-
-## Como pegar seu User ID
-
-1. No Discord, abra `Configuracoes de Usuario`.
-2. Va em `Avancado`.
-3. Ative `Modo desenvolvedor`.
-4. Clique com o botao direito no seu usuario.
-5. Clique em `Copiar ID`.
-
-## Como usar
+Execute:
 
 ```powershell
 python run.py
 ```
 
-Preencha:
+## Discord
 
-- `Bot Token`: token secreto do bot na aba `Bot` do Developer Portal.
-- `Seu User ID`: ID da sua conta Discord.
-- `Guild ID opcional`: ID do servidor. Pode deixar vazio, mas preencher ajuda o bot a procurar.
-- `Microfone`: dispositivo de entrada.
-- `Modelo Vosk`: pasta extraida do modelo Vosk.
-- `Provedor TTS`: motor de voz que sera usado na call.
+1. Acesse `https://discord.com/developers/applications`.
+2. Crie uma aplicacao e um bot.
+3. Copie o token em `Bot > Token`.
+4. Convide o bot com permissoes `View Channels`, `Connect` e `Speak`.
+5. Ative o modo desenvolvedor no Discord e copie o seu User ID.
 
-Depois:
+O app precisa do Bot Token real. `Application ID`, `Client ID` e `Public Key` nao funcionam como token.
 
-1. Entre em uma call no Discord.
-2. Clique em `Iniciar bot e transcricao`.
-3. Aguarde o status informar que o bot conectou na call.
-4. Fale no microfone.
-5. O bot deve falar na call o texto transcrito.
+## Vosk
 
-## Instalacao pela tela
-
-O app agora tem uma area `Instalador` dentro da janela Tkinter. Quando um recurso precisar de download ou pacote extra, use os botoes da propria interface:
-
-- `Baixar modelo Vosk PT-BR`: baixa e extrai o modelo pequeno de portugues em `models/`.
-- `Abrir configuracoes de fala`: abre a tela do Windows para instalar vozes SAPI.
-- `Atualizar lista de vozes`: recarrega as vozes SAPI instaladas.
-- `Instalar Kokoro local`: instala `kokoro` e `soundfile` no Python atual.
-- `Instalar Python portatil + Coqui`: baixa um Python 3.10 portatil em `tools/python310/`, prepara `numpy/Cython` e instala `TTS==0.22.0` nele.
-- `Instalar Bark no Python 3.10`: instala Bark no Python portatil.
-- `Instalar MeloTTS no Python 3.10`: instala MeloTTS e baixa o dicionario `unidic`.
-- `Instalar F5-TTS Python 3.10`: instala o pacote `f5-tts` no Python portatil.
-- `Baixar Piper`: abre a pagina de releases do Piper; depois selecione `piper.exe` e o modelo `.onnx`.
-- `Baixar eSpeak NG`: abre a pagina de releases; depois selecione `espeak-ng.exe`.
-
-Os downloads/instalacoes rodam em background e aparecem no log `Instalador`. Isso evita depender de comandos manuais no terminal.
+Baixe o modelo PT-BR pela propria interface em `Conexao > Baixar modelo Vosk PT-BR`, ou selecione manualmente uma pasta de modelo Vosk ja extraida.
 
 ## Provedores TTS
 
-- `Windows SAPI (local)`: usa as vozes instaladas no Windows. E o mais simples.
-- `Kokoro (local opcional)`: requer instalar `kokoro` e `soundfile`, alem de baixar/cachear modelos locais.
-- `Bark (local opcional)`: usa o Bark/Suno local. Pesado; prefira modelos pequenos e GPU quando possivel.
-- `MeloTTS (local opcional)`: usa MeloTTS local. Suporte a PT-BR depende dos modelos disponiveis.
-- `Piper TTS (local opcional)`: requer o executavel Piper e um modelo `.onnx`.
-- `Coqui TTS / XTTS v2 (local opcional)`: requer o pacote `TTS`. Para XTTS v2, informe `Speaker WAV` e idioma `pt`.
-- `F5-TTS (local opcional)`: requer `f5-tts`, audio de referencia e texto correspondente.
-- `eSpeak NG (local opcional)`: requer o executavel `espeak-ng`.
-- `Edge TTS (online opcional)`: vozes neurais Microsoft. Requer internet, pacote `edge-tts` e `ffmpeg`.
-- `TikTok API URL (online opcional)`: chama uma API local/remota compativel com WAV, MP3 ou JSON base64.
-- `TikTok Agus direto (online nao oficial)`: implementa chamada direta no estilo `agusibrahim/tiktok-tts-api`.
-- `TikTok Steve direto (online nao oficial)`: implementa chamada direta no estilo `Steve0929/tiktok-tts` e exige `sessionid`.
-- `NaturalReader Free (endpoint externo)`: NaturalReader Free nao tem API publica oficial; aceita endpoint proprio que retorne audio.
-- `OpenAI TTS (online opcional)`: requer pacote `openai`, API key e internet.
+A lista atual e:
 
-Para o requisito de rodar tudo localmente, use `Windows SAPI`, `Kokoro`, `Bark`, `MeloTTS`, `Piper TTS`, `Coqui/XTTS`, `F5-TTS` ou `eSpeak` com modelos/instalacoes locais.
+- Balabolka
+- NaturalReader
+- TTSReader
+- Piper TTS
+- Kokoro TTS
+- XTTS-v2
+- Coqui TTS
+- Chatterbox TTS
+- pyttsx3
+- eSpeak NG
+- Festival
+- Mimic 3
+- Tortoise TTS
+- ChatTTS
+- F5-TTS
+- OpenVoice
+- VITS
+- YourTTS
+- Glow-TTS
+- MaryTTS
+- RHVoice
 
-Quando trocar o `Provedor TTS`, o app mostra somente as opcoes relevantes daquele provedor. Para Windows SAPI, por exemplo, ele mostra as vozes instaladas e um atalho para baixar vozes nas configuracoes do Windows.
+Nem todos esses motores possuem uma API Python padrao e estavel. Por isso o app usa quatro formas de integracao:
 
-## Texto manual para a call
+- `pyttsx3`, `Kokoro TTS`, `Coqui/XTTS/VITS/YourTTS/Glow-TTS`, `Piper TTS`, `eSpeak NG`, `Festival`, `Mimic 3`, `F5-TTS`, `MaryTTS` e `RHVoice` tem integracoes diretas.
+- `NaturalReader` e `TTSReader` usam um endpoint HTTP configuravel que deve retornar WAV, MP3 ou JSON com `audio_base64`.
+- `Balabolka`, `Chatterbox TTS`, `Tortoise TTS`, `ChatTTS` e `OpenVoice` usam um comando externo configuravel.
+- O comando externo pode usar `{text}`, `{output}`, `{voice}`, `{speed}` e `{python}`.
 
-Depois que o bot estiver conectado na call, use o campo grande `Texto manual para a call`, perto do console, e clique em `Enviar texto para call`. Tambem funciona com `Ctrl+Enter`.
-
-## TikTok TTS
-
-As opcoes TikTok sao online e nao oficiais. O TikTok nao oferece API publica oficial de TTS para esse uso.
-
-- `TikTok API URL`: use se voce rodar uma API compativel localmente, por exemplo uma API no formato `/tts` do projeto `agusibrahim/tiktok-tts-api`.
-- `TikTok Agus direto`: chama o endpoint privado usado por implementacoes estilo `agusibrahim/tiktok-tts-api`.
-- `TikTok Steve direto`: chama o endpoint privado usado por `Steve0929/tiktok-tts` e precisa do cookie `sessionid` do TikTok Web.
-
-Essas opcoes podem parar de funcionar se o TikTok mudar ou bloquear os endpoints. Para estabilidade em call, prefira provedores locais.
-
-## Atualizacao pelo GitHub
-
-O app tem uma area `Atualizador GitHub`.
-
-- O repositorio fixo do projeto e `GustavoABA/VOICE`: `https://github.com/GustavoABA/VOICE`.
-- Em modo fonte, se a pasta tiver `.git` e remoto configurado, ele tenta `git fetch` e `git pull --ff-only` ao abrir.
-- Em versoes empacotadas, ele procura a ultima release do repositorio fixo no GitHub.
-- Se houver release nova em `.zip`, o app baixa e copia os arquivos para a pasta do aplicativo.
-- Depois de atualizar, reinicie o app.
-
-O campo `Verificar ao abrir` fica ligado por padrao. O versionamento compara a tag da release do GitHub com a versao interna do app.
-
-## Configuracoes salvas
-
-Os campos da tela sao salvos em `config.json` para aparecerem preenchidos ao abrir novamente. Isso inclui token do bot e API keys, entao mantenha esse arquivo apenas no seu computador e nao publique.
-
-## Pastas portateis
-
-Quando empacotado como `.exe`, o app cria uma pasta ao lado do executavel:
+Exemplo de comando externo:
 
 ```text
-NocturneVoiceData
+"{python}" C:\tts\meu_script.py --text "{text}" --output "{output}" --voice "{voice}"
 ```
 
-Ela guarda configuracoes, modelos, ferramentas baixadas, atualizacoes e o Python portatil do Coqui. Em modo fonte, esses dados ficam na propria pasta do projeto.
+## RVC
 
-### Coqui e Python portatil
+RVC nao e mais um provedor TTS separado. Ele fica na aba `RVC` e pode ser ativado como pos-processamento:
 
-Coqui TTS nao instala em Pythons muito novos. Por isso o app instala um Python 3.10 portatil separado:
+1. Escolha um TTS base na aba `TTS`.
+2. Ative `RVC depois do TTS`.
+3. Selecione o modelo `.pth` e, se houver, o indice `.index`.
+4. Configure pitch, device e index rate.
+
+Para evitar conflito de versoes, prefira instalar `rvc-python` no Python 3.10 portatil pela aba `Ferramentas`.
+
+## Compatibilidade de Python
+
+Motores pesados como Coqui/XTTS, F5-TTS, Tortoise, ChatTTS, OpenVoice, Chatterbox e RVC costumam exigir Python 3.10 ou 3.11. Se o app detectar Python novo demais, ele mostra a sugestao na aba `TTS`.
+
+Use `Ferramentas > Instalar Python 3.10 portatil` para baixar um Python separado em:
 
 ```text
 tools\python310\python.exe
 ```
 
-O app principal continua rodando no seu `.venv`, mas provedores pesados como `Coqui/XTTS`, `Bark` e `MeloTTS` podem chamar esse Python 3.10 por subprocess para gerar o WAV. Use o botao de instalacao do provedor e aguarde o log terminar. O campo `Python 3.10` sera preenchido automaticamente.
+Depois use `Usar Python portatil detectado` na aba `TTS`.
 
-Se o Coqui falhar com `No module named 'numpy'`, use a versao atual do app e clique de novo em `Instalar Python portatil + Coqui`. O instalador agora instala `numpy` e `Cython` antes de montar o pacote `TTS`.
+## Logs
 
-Para usar XTTS v2:
-
-1. Escolha `Coqui TTS / XTTS v2`.
-2. Use o modelo `tts_models/multilingual/multi-dataset/xtts_v2`.
-3. Em `Idioma`, coloque `pt`.
-4. Em `Speaker WAV`, selecione um WAV curto e limpo da voz de referencia.
+Todos os eventos importantes aparecem em `Logs`: inicializacao, microfone, transcricao, fila TTS, erros de instalacao e falhas dos provedores. Se algo nao funcionar, copie as linhas do log para diagnostico.
 
 ## Gerar executavel
-
-Use o script:
 
 ```powershell
 .\build_exe.ps1
 ```
 
-Se o PowerShell bloquear scripts, use:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\build_exe.ps1
-```
-
-O executavel sera gerado em:
+O executavel fica em:
 
 ```text
 dist\NocturneVoice\NocturneVoice.exe
 ```
 
-Distribua a pasta inteira:
-
-```text
-dist\NocturneVoice
-```
-
-Nao envie somente o `.exe`, porque o PyInstaller tambem gera a pasta `_internal` com DLLs de Python, Tkinter, Vosk, Discord, PortAudio e outras dependencias.
-
-Pontos importantes para empacotar:
-
-- Modelos Vosk, modelos Piper e outros arquivos grandes devem ficar fora do executavel, em pastas selecionaveis pela tela.
-- Provedores opcionais pesados como Coqui/Kokoro podem aumentar muito o tamanho do executavel.
-- A pasta `NocturneVoiceData` sera criada ao lado do executavel quando o app rodar empacotado.
-- Teste o bot em uma call no Windows final, porque Discord Voice depende de rede, permissao do bot e dispositivos de audio.
-
-## Observacoes
-
-- Use fone de ouvido para evitar loop: bot fala no Discord, microfone captura, transcreve de novo.
-- A fala nao e em tempo real perfeito. Existe atraso natural: microfone -> Vosk -> TTS -> Discord.
-- O bot so fica online enquanto o app estiver aberto.
-- Se o bot nao encontrar sua call, entre novamente na call depois que o bot estiver online.
-- Nunca publique seu `Bot Token`.
+Distribua a pasta inteira `dist\NocturneVoice`, nao apenas o `.exe`.

@@ -29,8 +29,8 @@ class DiscordVoiceBot:
         self._stop_event = Event()
         self._target_user_id = 0
         self._guild_id: int | None = None
-        self._tts_manager = TTSManager()
-        self._tts_config = TTSConfig(provider="Windows SAPI (local)")
+        self._tts_manager = TTSManager(log=self.status_queue.put)
+        self._tts_config = TTSConfig(provider="pyttsx3")
 
     @property
     def running(self) -> bool:
@@ -45,10 +45,11 @@ class DiscordVoiceBot:
 
         self._target_user_id = int(config.target_user_id.strip())
         self._guild_id = int(config.guild_id.strip()) if config.guild_id.strip().isdigit() else None
-        self._tts_config = config.tts_config or TTSConfig(provider="Windows SAPI (local)")
+        self._tts_config = config.tts_config or TTSConfig(provider="pyttsx3")
         self._stop_event.clear()
         self._thread = Thread(target=self._run_thread, args=(token,), daemon=True)
         self._thread.start()
+        self.status_queue.put("Bot Discord iniciando")
 
     def stop(self) -> None:
         self._stop_event.set()
@@ -176,6 +177,7 @@ class DiscordVoiceBot:
             voice_client = bot.voice_clients[0]
             wav_path = ""
             try:
+                self.status_queue.put(f"TTS recebido: {text[:80]}")
                 wav_path = await asyncio.to_thread(self._tts_manager.synthesize, text, self._tts_config)
                 source = make_pcm_audio_source(wav_path)
                 done = asyncio.Event()
