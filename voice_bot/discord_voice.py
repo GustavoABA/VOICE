@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import traceback
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from queue import Empty, SimpleQueue
 from threading import Event, Thread
 
-from .tts import TTSConfig, TTSManager, cleanup_wav, play_wav_monitor, wav_to_discord_pcm
+from .tts import TTSConfig, TTSManager, cleanup_wav, play_wav_monitor, resolve_ffmpeg_exe, wav_to_discord_pcm
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,7 +181,7 @@ class DiscordVoiceBot:
                 self.status_queue.put(f"TTS recebido: {text[:80]}")
                 wav_path = await asyncio.to_thread(self._tts_manager.synthesize, text, self._tts_config)
                 await asyncio.to_thread(play_wav_monitor, wav_path, self._tts_config, self.status_queue.put)
-                source = make_pcm_audio_source(wav_path)
+                source = make_audio_source(wav_path, self._tts_config)
                 done = asyncio.Event()
 
                 def after(error) -> None:
@@ -194,10 +195,27 @@ class DiscordVoiceBot:
                 self.status_queue.put(f"Falando: {text[:80]}")
                 await done.wait()
             except Exception as exc:
-                self.status_queue.put(f"Erro no TTS: {exc}")
+                detail = str(exc).strip() or exc.__class__.__name__
+                self.status_queue.put(f"Erro no TTS: {detail}")
+                self.status_queue.put(traceback.format_exc().strip()[-1200:])
             finally:
                 if wav_path:
                     cleanup_wav(wav_path)
+
+
+def make_audio_source(wav_path: str, config: TTSConfig):
+    import discord
+
+    try:
+        ffmpeg = resolve_ffmpeg_exe(config.ffmpeg_exe)
+        return discord.FFmpegOpusAudio(
+            wav_path,
+            executable=ffmpeg,
+            before_options="-nostdin",
+            options="-vn -ac 2 -ar 48000 -b:a 96k",
+        )
+    except Exception:
+        return make_pcm_audio_source(wav_path)
 
 
 def make_pcm_audio_source(wav_path: str):

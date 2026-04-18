@@ -1017,6 +1017,10 @@ def _convert_audio_to_wav(source_path: str, wav_path: str, ffmpeg_exe: str, time
     )
 
 
+def resolve_ffmpeg_exe(ffmpeg_exe: str = "ffmpeg") -> str:
+    return _resolve_ffmpeg_exe(ffmpeg_exe)
+
+
 def _resolve_ffmpeg_exe(ffmpeg_exe: str) -> str:
     configured = (ffmpeg_exe or "").strip()
     candidates: list[str] = []
