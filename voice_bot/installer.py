@@ -84,6 +84,14 @@ class InstallManager:
         self._run_command([str(python_exe), "-m", "pip", "install", "--prefer-binary", *packages])
         return python_exe
 
+    def install_edge_tts(self) -> None:
+        self.events.put(InstallEvent("info", "Instalando Edge TTS no Python atual..."))
+        self.pip_install("edge-tts>=7.0")
+
+    def install_gtts(self) -> None:
+        self.events.put(InstallEvent("info", "Instalando gTTS no Python atual..."))
+        self.pip_install("gTTS>=2.5")
+
     def install_portable_f5tts(self) -> Path:
         self.events.put(InstallEvent("info", "Instalando F5-TTS no Python 3.10 portatil..."))
         return self.portable_pip_install("f5-tts")
@@ -100,6 +108,12 @@ class InstallManager:
     def install_portable_coqui(self) -> Path:
         python_exe = self.install_portable_python310()
         self.events.put(InstallEvent("info", "Instalando Coqui TTS no Python 3.10 portatil..."))
+        self.events.put(
+            InstallEvent(
+                "warn",
+                "No Windows, Coqui/TTS pode exigir Microsoft C++ Build Tools se nao houver wheel pronto.",
+            )
+        )
         self._run_command([str(python_exe), "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"])
         self._run_command(
             [
@@ -113,17 +127,24 @@ class InstallManager:
                 "packaging",
             ]
         )
-        self._run_command(
-            [
-                str(python_exe),
-                "-m",
-                "pip",
-                "install",
-                "--prefer-binary",
-                "--no-build-isolation",
-                "TTS==0.22.0",
-            ]
-        )
+        try:
+            self._run_command(
+                [
+                    str(python_exe),
+                    "-m",
+                    "pip",
+                    "install",
+                    "--prefer-binary",
+                    "--no-build-isolation",
+                    "TTS==0.22.0",
+                ]
+            )
+        except RuntimeError as exc:
+            raise RuntimeError(
+                "Nao foi possivel instalar Coqui/TTS automaticamente. "
+                "No Windows isso geralmente acontece por falta do Microsoft C++ Build Tools. "
+                "Instale o Build Tools pelo botao da aba Ferramentas ou use Edge TTS/gTTS/pyttsx3/Piper."
+            ) from exc
         return python_exe
 
     def install_portable_python310(self) -> Path:

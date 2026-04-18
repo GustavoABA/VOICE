@@ -28,6 +28,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "endpoint_voice_field": "voice",
     "piper_exe": "piper",
     "piper_model": "",
+    "edge_voice": "pt-BR-FranciscaNeural",
+    "gtts_lang": "pt",
     "kokoro_voice": "pf_dora",
     "kokoro_lang": "p",
     "coqui_model": "",
@@ -53,6 +55,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "rvc_pitch": 0,
     "rvc_device": "cpu",
     "rvc_index_rate": 0.33,
+    "popup_hotkey": "F8",
     "github_repo": GITHUB_REPO,
 }
 

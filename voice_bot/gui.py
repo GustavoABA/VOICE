@@ -13,13 +13,37 @@ from .constants import APP_NAME
 from .discord_voice import DiscordVoiceBot, DiscordVoiceConfig
 from .installer import InstallEvent, InstallManager, python310_exe
 from .transcriber import TranscriberConfig, VoskMicTranscriber
-from .tts import COQUI_MODEL_DEFAULTS, PROVIDERS, TTSConfig, TTSManager, cleanup_wav, compatibility_message, list_windows_voices
+from .tts import (
+    COQUI_MODEL_CHOICES,
+    COQUI_MODEL_DEFAULTS,
+    EDGE_VOICES,
+    ESPEAK_VOICES,
+    GTTS_LANGUAGES,
+    KOKORO_VOICES,
+    PROVIDERS,
+    TTSConfig,
+    TTSManager,
+    cleanup_wav,
+    compatibility_message,
+    list_windows_voices,
+)
 
 
 ENDPOINT_PROVIDERS = {"NaturalReader", "TTSReader"}
 COMMAND_PROVIDERS = {"Balabolka", "Chatterbox TTS", "Tortoise TTS", "ChatTTS", "OpenVoice"}
 COQUI_PROVIDERS = {"XTTS-v2", "Coqui TTS", "VITS", "YourTTS", "Glow-TTS"}
 PYTHON_HEAVY_PROVIDERS = COQUI_PROVIDERS | {"F5-TTS", "Chatterbox TTS", "Tortoise TTS", "ChatTTS", "OpenVoice"}
+THEME = {
+    "bg": "#09070b",
+    "panel": "#151017",
+    "panel2": "#1d141d",
+    "field": "#100b12",
+    "text": "#f3e7dc",
+    "muted": "#b7a8b4",
+    "accent": "#b83b55",
+    "accent2": "#d6b36a",
+    "border": "#5e2231",
+}
 
 
 class DiscordVoiceTTSApp(tk.Tk):
@@ -37,6 +61,9 @@ class DiscordVoiceTTSApp(tk.Tk):
         self._running = False
         self._quitting = False
         self._save_after_id: str | None = None
+        self._active_page = "Conexao"
+        self._waiting_hotkey = False
+        self._hotkey_bind_id: str | None = None
 
         self._configure_style()
         self._build_variables()
@@ -46,17 +73,34 @@ class DiscordVoiceTTSApp(tk.Tk):
         self.update_provider_panel()
         self.after(100, self._poll_services)
         self.protocol("WM_DELETE_WINDOW", self.destroy)
+        self._rebind_popup_hotkey()
         self.log(f"{APP_NAME} v{__version__} iniciado em Python {sys.version.split()[0]}")
 
     def _configure_style(self) -> None:
         style = ttk.Style(self)
         style.theme_use("clam")
-        style.configure(".", font=("Segoe UI", 10))
-        style.configure("Title.TLabel", font=("Segoe UI Semibold", 18))
-        style.configure("Section.TLabel", font=("Segoe UI Semibold", 12))
-        style.configure("Status.TLabel", font=("Segoe UI Semibold", 10))
-        style.configure("Accent.TButton", font=("Segoe UI Semibold", 11), padding=(14, 8))
-        style.configure("Danger.TButton", font=("Segoe UI Semibold", 11), padding=(14, 8))
+        self.configure(bg=THEME["bg"])
+        style.configure(".", font=("Segoe UI", 10), background=THEME["bg"], foreground=THEME["text"])
+        style.configure("TFrame", background=THEME["bg"])
+        style.configure("Panel.TFrame", background=THEME["panel"])
+        style.configure("TLabel", background=THEME["bg"], foreground=THEME["text"])
+        style.configure("Panel.TLabel", background=THEME["panel"], foreground=THEME["text"])
+        style.configure("Muted.TLabel", background=THEME["bg"], foreground=THEME["muted"])
+        style.configure("Title.TLabel", font=("Georgia", 22, "bold"), background=THEME["bg"], foreground="#f4d8ad")
+        style.configure("Section.TLabel", font=("Georgia", 13, "bold"), background=THEME["panel"], foreground=THEME["accent2"])
+        style.configure("Status.TLabel", font=("Segoe UI Semibold", 10), background=THEME["bg"], foreground=THEME["accent2"])
+        style.configure("TLabelFrame", background=THEME["bg"], foreground=THEME["accent2"], bordercolor=THEME["border"])
+        style.configure("TLabelFrame.Label", background=THEME["bg"], foreground=THEME["accent2"], font=("Georgia", 11, "bold"))
+        style.configure("TEntry", fieldbackground=THEME["field"], foreground=THEME["text"], insertcolor=THEME["text"], bordercolor=THEME["border"])
+        style.configure("TCombobox", fieldbackground=THEME["field"], background=THEME["field"], foreground=THEME["text"], arrowcolor=THEME["accent2"])
+        style.configure("TButton", background=THEME["panel2"], foreground=THEME["text"], borderwidth=1, bordercolor=THEME["border"], padding=(10, 8))
+        style.map("TButton", background=[("active", "#2b1b29")], bordercolor=[("active", THEME["accent"])])
+        style.configure("Nav.TButton", anchor="w", background="#120c14", foreground=THEME["text"], padding=(12, 11))
+        style.configure("Accent.TButton", background=THEME["accent"], foreground="#fff6ed", font=("Segoe UI Semibold", 11), padding=(14, 9))
+        style.configure("Danger.TButton", background="#6f1f35", foreground="#fff6ed", font=("Segoe UI Semibold", 11), padding=(14, 9))
+        style.configure("TNotebook", background=THEME["bg"], borderwidth=0)
+        style.configure("TNotebook.Tab", background=THEME["panel"], foreground=THEME["muted"], padding=(12, 6))
+        style.map("TNotebook.Tab", background=[("selected", THEME["accent"])], foreground=[("selected", "#fff6ed")])
 
     def _build_variables(self) -> None:
         cfg = self.config_values
@@ -81,6 +125,8 @@ class DiscordVoiceTTSApp(tk.Tk):
         self.endpoint_voice_field_var = tk.StringVar(value=cfg.get("endpoint_voice_field", "voice"))
         self.piper_exe_var = tk.StringVar(value=cfg.get("piper_exe", "piper"))
         self.piper_model_var = tk.StringVar(value=cfg.get("piper_model", ""))
+        self.edge_voice_var = tk.StringVar(value=cfg.get("edge_voice", "pt-BR-FranciscaNeural"))
+        self.gtts_lang_var = tk.StringVar(value=cfg.get("gtts_lang", "pt"))
         self.kokoro_voice_var = tk.StringVar(value=cfg.get("kokoro_voice", "pf_dora"))
         self.kokoro_lang_var = tk.StringVar(value=cfg.get("kokoro_lang", "p"))
         self.coqui_model_var = tk.StringVar(value=cfg.get("coqui_model", ""))
@@ -112,12 +158,14 @@ class DiscordVoiceTTSApp(tk.Tk):
         self.last_text_var = tk.StringVar(value="Nenhuma fala transcrita ainda")
         self.compatibility_var = tk.StringVar()
         self.install_status_var = tk.StringVar(value="Ferramentas prontas")
+        self.popup_hotkey_var = tk.StringVar(value=cfg.get("popup_hotkey", "F8"))
 
     def _bind_auto_save(self) -> None:
         for variable in self._all_config_vars():
             variable.trace_add("write", lambda *_args: self._schedule_config_save())
         self.tts_provider_var.trace_add("write", lambda *_args: self.update_provider_panel())
         self.python_exe_var.trace_add("write", lambda *_args: self.update_compatibility())
+        self.popup_hotkey_var.trace_add("write", lambda *_args: self._rebind_popup_hotkey())
 
     def _all_config_vars(self) -> tuple[tk.Variable, ...]:
         return (
@@ -141,6 +189,8 @@ class DiscordVoiceTTSApp(tk.Tk):
             self.endpoint_voice_field_var,
             self.piper_exe_var,
             self.piper_model_var,
+            self.edge_voice_var,
+            self.gtts_lang_var,
             self.kokoro_voice_var,
             self.kokoro_lang_var,
             self.coqui_model_var,
@@ -166,6 +216,7 @@ class DiscordVoiceTTSApp(tk.Tk):
             self.rvc_pitch_var,
             self.rvc_device_var,
             self.rvc_index_rate_var,
+            self.popup_hotkey_var,
         )
 
     def _build_ui(self) -> None:
@@ -178,8 +229,21 @@ class DiscordVoiceTTSApp(tk.Tk):
         ttk.Label(header, text=f"v{__version__}", foreground="#555").pack(side="left", padx=(10, 0), pady=(5, 0))
         ttk.Label(header, textvariable=self.status_var, style="Status.TLabel").pack(side="right")
 
-        self.notebook = ttk.Notebook(root)
-        self.notebook.pack(fill="both", expand=True)
+        body = ttk.Frame(root)
+        body.pack(fill="both", expand=True)
+
+        sidebar = ttk.Frame(body, style="Panel.TFrame", padding=10)
+        sidebar.pack(side="left", fill="y", padx=(0, 12))
+
+        for title in ("Conexao", "TTS", "RVC", "Ferramentas", "Logs"):
+            ttk.Button(sidebar, text=title, style="Nav.TButton", command=lambda name=title: self.show_page(name)).pack(fill="x", pady=4)
+        ttk.Separator(sidebar, orient="horizontal").pack(fill="x", pady=10)
+        ttk.Button(sidebar, text="Popup texto", style="Nav.TButton", command=self.open_quick_text_popup).pack(fill="x", pady=4)
+        ttk.Button(sidebar, text="Definir atalho", style="Nav.TButton", command=self.capture_popup_hotkey).pack(fill="x", pady=4)
+        ttk.Label(sidebar, textvariable=self.popup_hotkey_var, style="Panel.TLabel", wraplength=150).pack(fill="x", pady=(6, 0))
+
+        self.notebook = ttk.Notebook(body)
+        self.notebook.pack(side="left", fill="both", expand=True)
 
         self.connection_tab = ttk.Frame(self.notebook, padding=14)
         self.tts_tab = ttk.Frame(self.notebook, padding=14)
@@ -198,6 +262,20 @@ class DiscordVoiceTTSApp(tk.Tk):
         self._build_rvc_tab()
         self._build_tools_tab()
         self._build_logs_tab()
+        self.show_page("Conexao")
+
+    def show_page(self, name: str) -> None:
+        pages = {
+            "Conexao": self.connection_tab,
+            "TTS": self.tts_tab,
+            "RVC": self.rvc_tab,
+            "Ferramentas": self.tools_tab,
+            "Logs": self.logs_tab,
+        }
+        tab = pages.get(name)
+        if tab is not None:
+            self.notebook.select(tab)
+            self._active_page = name
 
     def _build_connection_tab(self) -> None:
         main = ttk.Frame(self.connection_tab)
@@ -235,7 +313,7 @@ class DiscordVoiceTTSApp(tk.Tk):
 
         manual = ttk.LabelFrame(self.connection_tab, text="Texto manual para a call", padding=12)
         manual.pack(fill="both", expand=True, pady=(14, 0))
-        self.manual_text_widget = tk.Text(manual, height=6, wrap="word")
+        self.manual_text_widget = self._text_widget(manual, height=6)
         self.manual_text_widget.insert("1.0", self.manual_text_var.get())
         self.manual_text_widget.pack(fill="both", expand=True)
         self.manual_text_widget.bind("<KeyRelease>", lambda _event: self._sync_manual_text_from_widget())
@@ -260,9 +338,10 @@ class DiscordVoiceTTSApp(tk.Tk):
         self.provider_options.pack(fill="both", expand=True, pady=(14, 0))
 
         actions = ttk.Frame(self.tts_tab)
-        actions.pack(fill="x", pady=(10, 0))
-        ttk.Button(actions, text="Testar TTS", command=self.test_tts).pack(side="right")
-        ttk.Button(actions, text="Usar Python portatil detectado", command=self.use_portable_python).pack(side="right", padx=(0, 8))
+        actions.pack(side="right", fill="y", padx=(10, 0), pady=(10, 0))
+        ttk.Button(actions, text="Testar TTS", command=self.test_tts).pack(fill="x", pady=3)
+        ttk.Button(actions, text="Usar Python portatil", command=self.use_portable_python).pack(fill="x", pady=3)
+        ttk.Button(actions, text="Popup de texto", command=self.open_quick_text_popup).pack(fill="x", pady=3)
 
     def _build_rvc_tab(self) -> None:
         panel = ttk.LabelFrame(self.rvc_tab, text="Conversao RVC opcional", padding=12)
@@ -284,11 +363,12 @@ class DiscordVoiceTTSApp(tk.Tk):
         panel.pack(fill="x")
         ttk.Label(panel, textvariable=self.install_status_var, wraplength=900).pack(anchor="w", pady=(0, 8))
         actions = ttk.Frame(panel)
-        actions.pack(fill="x")
-        ttk.Button(actions, text="Instalar Python 3.10 portatil", command=self.install_python310).pack(side="left")
-        ttk.Button(actions, text="Instalar dependencias do TTS atual", command=self.install_current_provider).pack(side="left", padx=(8, 0))
-        ttk.Button(actions, text="Instalar RVC no Python portatil", command=self.install_rvc).pack(side="left", padx=(8, 0))
-        ttk.Button(actions, text="Abrir pasta tools", command=lambda: _open_path(Path("tools").resolve())).pack(side="left", padx=(8, 0))
+        actions.pack(side="left", fill="y")
+        ttk.Button(actions, text="Instalar Python 3.10", command=self.install_python310).pack(fill="x", pady=3)
+        ttk.Button(actions, text="Instalar TTS atual", command=self.install_current_provider).pack(fill="x", pady=3)
+        ttk.Button(actions, text="Instalar RVC", command=self.install_rvc).pack(fill="x", pady=3)
+        ttk.Button(actions, text="Abrir tools", command=lambda: _open_path(Path("tools").resolve())).pack(fill="x", pady=3)
+        ttk.Button(actions, text="Baixar Build Tools", command=lambda: webbrowser.open("https://visualstudio.microsoft.com/visual-cpp-build-tools/")).pack(fill="x", pady=3)
 
         help_box = ttk.LabelFrame(self.tools_tab, text="Como configurar provedores externos", padding=12)
         help_box.pack(fill="both", expand=True, pady=(14, 0))
@@ -305,7 +385,7 @@ class DiscordVoiceTTSApp(tk.Tk):
         ).pack(anchor="w")
 
     def _build_logs_tab(self) -> None:
-        self.log_text = tk.Text(self.logs_tab, wrap="word", state="disabled")
+        self.log_text = self._text_widget(self.logs_tab, state="disabled")
         self.log_text.pack(fill="both", expand=True)
         actions = ttk.Frame(self.logs_tab)
         actions.pack(fill="x", pady=(8, 0))
@@ -326,14 +406,20 @@ class DiscordVoiceTTSApp(tk.Tk):
             voices = list_windows_voices()
             self._combo(self.provider_options, "Voz instalada", self.tts_voice_var, tuple(voices) or ("",))
             ttk.Button(self.provider_options, text="Recarregar vozes pyttsx3", command=self.refresh_windows_voices).pack(anchor="w", pady=(6, 0))
+        elif provider == "Edge TTS":
+            self._combo(self.provider_options, "Voz Edge", self.edge_voice_var, EDGE_VOICES)
+            ttk.Label(self.provider_options, text="Online, simples e geralmente mais natural. Requer edge-tts e ffmpeg.", wraplength=850).pack(anchor="w", pady=(6, 0))
+        elif provider == "gTTS":
+            self._combo(self.provider_options, "Idioma", self.gtts_lang_var, GTTS_LANGUAGES)
+            ttk.Label(self.provider_options, text="Online via Google Translate TTS. Requer gTTS e ffmpeg.", wraplength=850).pack(anchor="w", pady=(6, 0))
         elif provider == "Piper TTS":
             self._path_entry(self.provider_options, "piper.exe", self.piper_exe_var, self.select_piper_exe)
             self._path_entry(self.provider_options, "Modelo .onnx", self.piper_model_var, self.select_piper_model)
         elif provider == "Kokoro TTS":
-            self._entry(self.provider_options, "Voz Kokoro", self.kokoro_voice_var)
+            self._combo(self.provider_options, "Voz Kokoro", self.kokoro_voice_var, KOKORO_VOICES)
             self._entry(self.provider_options, "Lang code", self.kokoro_lang_var)
         elif provider in COQUI_PROVIDERS:
-            self._entry(self.provider_options, "Modelo", self.coqui_model_var)
+            self._combo(self.provider_options, "Modelo", self.coqui_model_var, COQUI_MODEL_CHOICES)
             self._entry(self.provider_options, "Idioma", self.coqui_language_var)
             self._path_entry(self.provider_options, "Speaker WAV", self.coqui_speaker_wav_var, self.select_speaker_wav)
         elif provider in ENDPOINT_PROVIDERS:
@@ -347,7 +433,7 @@ class DiscordVoiceTTSApp(tk.Tk):
             ttk.Label(self.provider_options, text="Exemplo: \"{python}\" script.py --text \"{text}\" --output \"{output}\" --voice \"{voice}\"", wraplength=850).pack(anchor="w", pady=(6, 0))
         elif provider == "eSpeak NG":
             self._path_entry(self.provider_options, "espeak-ng", self.espeak_exe_var, self.select_espeak_exe)
-            self._entry(self.provider_options, "Voz", self.espeak_voice_var)
+            self._combo(self.provider_options, "Voz", self.espeak_voice_var, ESPEAK_VOICES)
         elif provider == "Festival":
             self._path_entry(self.provider_options, "text2wave", self.festival_exe_var, self.select_festival_exe)
         elif provider == "Mimic 3":
@@ -447,6 +533,125 @@ class DiscordVoiceTTSApp(tk.Tk):
         self.discord_bot.speak(text)
         self.log(f"Texto manual enviado: {text[:100]}")
 
+    def open_quick_text_popup(self, _event=None) -> None:
+        popup = tk.Toplevel(self)
+        popup.title("Enviar texto para TTS")
+        popup.configure(bg=THEME["bg"])
+        popup.geometry("560x240")
+        popup.transient(self)
+        popup.grab_set()
+        popup.focus_force()
+
+        frame = ttk.Frame(popup, padding=14)
+        frame.pack(fill="both", expand=True)
+        ttk.Label(frame, text="Texto para a call", style="Title.TLabel").pack(anchor="w", pady=(0, 8))
+        text = self._text_widget(frame, height=6)
+        text.pack(fill="both", expand=True)
+        text.focus_set()
+
+        actions = ttk.Frame(frame)
+        actions.pack(fill="x", pady=(10, 0))
+        ttk.Button(actions, text="Cancelar", command=popup.destroy).pack(side="right")
+        ttk.Button(actions, text="Enviar", style="Accent.TButton", command=lambda: self._send_popup_text(text, popup)).pack(side="right", padx=(0, 8))
+
+        text.bind("<Return>", lambda event: self._popup_enter(event, text, popup))
+        text.bind("<Control-Return>", lambda event: self._send_popup_text(text, popup))
+        popup.bind("<Escape>", lambda _event: popup.destroy())
+
+    def _popup_enter(self, event, text_widget: tk.Text, popup: tk.Toplevel) -> str:
+        if event.state & 0x0001:
+            return ""
+        self._send_popup_text(text_widget, popup)
+        return "break"
+
+    def _send_popup_text(self, text_widget: tk.Text, popup: tk.Toplevel) -> str:
+        if not self.discord_bot.running:
+            messagebox.showwarning("Falar na call", "Inicie o bot antes de enviar texto para a call.", parent=popup)
+            return "break"
+        text = text_widget.get("1.0", "end-1c").strip()
+        if not text:
+            messagebox.showwarning("Falar na call", "Digite uma frase.", parent=popup)
+            return "break"
+        self.discord_bot.update_tts_config(self.current_tts_config())
+        self.discord_bot.speak(text)
+        self.log(f"Popup enviado: {text[:100]}")
+        popup.destroy()
+        return "break"
+
+    def capture_popup_hotkey(self) -> None:
+        if self._waiting_hotkey:
+            return
+        self._waiting_hotkey = True
+        dialog = tk.Toplevel(self)
+        dialog.title("Definir atalho")
+        dialog.configure(bg=THEME["bg"])
+        dialog.geometry("420x140")
+        dialog.transient(self)
+        dialog.grab_set()
+        ttk.Label(dialog, text="Pressione a tecla ou combinacao para abrir o popup.", wraplength=360).pack(fill="x", padx=18, pady=(18, 8))
+        ttk.Label(dialog, text="Exemplos: F8, Ctrl+Espaco, Ctrl+Shift+T.", style="Muted.TLabel", wraplength=360).pack(fill="x", padx=18)
+
+        def finish(event) -> str:
+            hotkey = self._event_to_hotkey(event)
+            if hotkey:
+                self.popup_hotkey_var.set(hotkey)
+                self.log(f"Atalho do popup definido: {hotkey}")
+            self._waiting_hotkey = False
+            dialog.destroy()
+            return "break"
+
+        dialog.bind("<KeyPress>", finish)
+        dialog.bind("<Escape>", lambda _event: (setattr(self, "_waiting_hotkey", False), dialog.destroy()))
+        dialog.focus_force()
+
+    def _rebind_popup_hotkey(self) -> None:
+        if not hasattr(self, "popup_hotkey_var"):
+            return
+        if self._hotkey_bind_id is not None:
+            try:
+                self.unbind_all(self._hotkey_bind_id)
+            except Exception:
+                pass
+            self._hotkey_bind_id = None
+        sequence = self._hotkey_sequence(self.popup_hotkey_var.get())
+        if sequence:
+            self.bind_all(sequence, self.open_quick_text_popup)
+            self._hotkey_bind_id = sequence
+
+    def _event_to_hotkey(self, event) -> str:
+        key = event.keysym
+        if key in {"Shift_L", "Shift_R", "Control_L", "Control_R", "Alt_L", "Alt_R"}:
+            return ""
+        parts: list[str] = []
+        if event.state & 0x0004:
+            parts.append("Ctrl")
+        if event.state & 0x0001:
+            parts.append("Shift")
+        if event.state & 0x0008:
+            parts.append("Alt")
+        parts.append("Espaco" if key == "space" else key)
+        return "+".join(parts)
+
+    def _hotkey_sequence(self, value: str) -> str:
+        clean = (value or "").strip()
+        if not clean:
+            return ""
+        parts = clean.replace(" ", "").split("+")
+        normalized = []
+        for part in parts:
+            lower = part.lower()
+            if lower in {"ctrl", "control"}:
+                normalized.append("Control")
+            elif lower == "shift":
+                normalized.append("Shift")
+            elif lower == "alt":
+                normalized.append("Alt")
+            elif lower in {"espaco", "space"}:
+                normalized.append("space")
+            else:
+                normalized.append(part)
+        return "<" + "-".join(normalized) + ">"
+
     def test_tts(self) -> None:
         text = "Teste de voz do Nocturne Voice."
         self.save_persistent_config()
@@ -474,6 +679,8 @@ class DiscordVoiceTTSApp(tk.Tk):
             endpoint_voice_field=self.endpoint_voice_field_var.get(),
             piper_exe=self.piper_exe_var.get(),
             piper_model=self.piper_model_var.get(),
+            edge_voice=self.edge_voice_var.get(),
+            gtts_lang=self.gtts_lang_var.get(),
             kokoro_voice=self.kokoro_voice_var.get(),
             kokoro_lang=self.kokoro_lang_var.get(),
             coqui_model=self.coqui_model_var.get(),
@@ -528,6 +735,12 @@ class DiscordVoiceTTSApp(tk.Tk):
         def action() -> None:
             if provider == "Kokoro TTS":
                 self.installer.pip_install("kokoro>=0.9.4", "soundfile>=0.12")
+                return
+            if provider == "Edge TTS":
+                self.installer.install_edge_tts()
+                return
+            if provider == "gTTS":
+                self.installer.install_gtts()
                 return
             if provider in COQUI_PROVIDERS:
                 exe = self.installer.install_portable_coqui()
@@ -640,6 +853,8 @@ class DiscordVoiceTTSApp(tk.Tk):
                 "endpoint_voice_field": self.endpoint_voice_field_var.get(),
                 "piper_exe": self.piper_exe_var.get(),
                 "piper_model": self.piper_model_var.get(),
+                "edge_voice": self.edge_voice_var.get(),
+                "gtts_lang": self.gtts_lang_var.get(),
                 "kokoro_voice": self.kokoro_voice_var.get(),
                 "kokoro_lang": self.kokoro_lang_var.get(),
                 "coqui_model": self.coqui_model_var.get(),
@@ -665,6 +880,7 @@ class DiscordVoiceTTSApp(tk.Tk):
                 "rvc_pitch": _int(self.rvc_pitch_var.get(), 0),
                 "rvc_device": self.rvc_device_var.get(),
                 "rvc_index_rate": self.rvc_index_rate_var.get(),
+                "popup_hotkey": self.popup_hotkey_var.get(),
             }
         )
 
@@ -694,6 +910,24 @@ class DiscordVoiceTTSApp(tk.Tk):
         ttk.Label(row, text=label, width=18).pack(side="left")
         combo = ttk.Combobox(row, textvariable=variable, values=values, state="readonly")
         combo.pack(side="left", fill="x", expand=True)
+
+    def _text_widget(self, parent: ttk.Widget, height: int | None = None, state: str = "normal") -> tk.Text:
+        kwargs = {"wrap": "word", "state": state}
+        if height is not None:
+            kwargs["height"] = height
+        return tk.Text(
+            parent,
+            **kwargs,
+            bg=THEME["field"],
+            fg=THEME["text"],
+            insertbackground=THEME["text"],
+            selectbackground=THEME["accent"],
+            relief="flat",
+            borderwidth=1,
+            highlightthickness=1,
+            highlightbackground=THEME["border"],
+            highlightcolor=THEME["accent"],
+        )
 
     def _scale(self, parent: ttk.Widget, label: str, variable: tk.DoubleVar, start: float, end: float) -> None:
         row = ttk.Frame(parent)

@@ -28,6 +28,8 @@ LogCallback = Callable[[str], None]
 
 
 PROVIDERS = (
+    "Edge TTS",
+    "gTTS",
     "Balabolka",
     "NaturalReader",
     "TTSReader",
@@ -49,6 +51,38 @@ PROVIDERS = (
     "Glow-TTS",
     "MaryTTS",
     "RHVoice",
+)
+
+
+EDGE_VOICES = (
+    "pt-BR-FranciscaNeural",
+    "pt-BR-AntonioNeural",
+    "pt-PT-RaquelNeural",
+    "pt-PT-DuarteNeural",
+    "en-US-JennyNeural",
+    "en-US-GuyNeural",
+)
+
+GTTS_LANGUAGES = (
+    "pt",
+    "pt-br",
+    "en",
+    "es",
+    "fr",
+    "de",
+    "it",
+    "ja",
+    "ko",
+)
+
+ESPEAK_VOICES = ("pt-br", "pt", "pt+f2", "pt+m3", "en-us", "es", "fr", "de")
+KOKORO_VOICES = ("pf_dora", "pm_alex", "pf_julia", "pm_santa", "af_heart", "am_adam")
+COQUI_MODEL_CHOICES = (
+    "tts_models/multilingual/multi-dataset/xtts_v2",
+    "tts_models/multilingual/multi-dataset/your_tts",
+    "tts_models/en/ljspeech/vits",
+    "tts_models/en/ljspeech/glow-tts",
+    "tts_models/pt/cv/vits",
 )
 
 
@@ -85,6 +119,8 @@ class TTSConfig:
     endpoint_voice_field: str = "voice"
     piper_exe: str = "piper"
     piper_model: str = ""
+    edge_voice: str = "pt-BR-FranciscaNeural"
+    gtts_lang: str = "pt"
     kokoro_voice: str = "pf_dora"
     kokoro_lang: str = "p"
     coqui_model: str = ""
@@ -159,6 +195,69 @@ class PiperTTS(TTSProvider):
         return wav_path
 
 
+class EdgeOnlineTTS(TTSProvider):
+    def synthesize(self, text: str, config: TTSConfig, log: LogCallback | None = None) -> str:
+        mp3_path = tempfile.NamedTemporaryFile(prefix="edge_tts_", suffix=".mp3", delete=False)
+        mp3_path.close()
+        wav_path = _temp_wav_path()
+        voice = config.edge_voice.strip() or config.voice.strip() or "pt-BR-FranciscaNeural"
+        try:
+            try:
+                import edge_tts
+            except ImportError:
+                _run_checked(
+                    [
+                        sys.executable,
+                        "-m",
+                        "edge_tts",
+                        "--voice",
+                        voice,
+                        "--text",
+                        text,
+                        "--write-media",
+                        mp3_path.name,
+                    ],
+                    timeout=config.timeout_seconds,
+                    error_prefix="Edge TTS falhou",
+                )
+            else:
+                import asyncio
+
+                loop = asyncio.new_event_loop()
+                try:
+                    loop.run_until_complete(edge_tts.Communicate(text, voice).save(mp3_path.name))
+                finally:
+                    loop.close()
+            _convert_audio_to_wav(mp3_path.name, wav_path, config.ffmpeg_exe, config.timeout_seconds)
+        except Exception:
+            cleanup_wav(wav_path)
+            raise
+        finally:
+            cleanup_wav(mp3_path.name)
+        return wav_path
+
+
+class GoogleTranslateTTS(TTSProvider):
+    def synthesize(self, text: str, config: TTSConfig, log: LogCallback | None = None) -> str:
+        lang = (config.gtts_lang.strip() or config.voice.strip() or "pt").lower()
+        mp3_path = tempfile.NamedTemporaryFile(prefix="gtts_", suffix=".mp3", delete=False)
+        mp3_path.close()
+        wav_path = _temp_wav_path()
+        try:
+            try:
+                from gtts import gTTS
+            except ImportError as exc:
+                raise TTSError("gTTS requer `pip install gTTS` ou use Ferramentas > Instalar dependencias do TTS atual.") from exc
+            gTTS(text=text, lang=lang.split("-", 1)[0]).save(mp3_path.name)
+            _convert_audio_to_wav(mp3_path.name, wav_path, config.ffmpeg_exe, config.timeout_seconds)
+        except Exception:
+            cleanup_wav(wav_path)
+            raise
+        finally:
+            cleanup_wav(mp3_path.name)
+        return wav_path
+
+
 class KokoroTTS(TTSProvider):
     def __init__(self) -> None:
         self._pipeline = None
@@ -222,6 +321,12 @@ class CoquiLikeTTS(TTSProvider):
         return wav_path
 
     def _synthesize_with_python(self, text: str, config: TTSConfig, model: str, python_exe: str) -> str:
+        if not _external_python_has_module(python_exe, "TTS"):
+            raise TTSError(
+                f"{config.provider} precisa do pacote Coqui `TTS` no Python portatil selecionado.\n"
+                "Clique em Ferramentas > Instalar dependencias do TTS atual.\n"
+                "Se a instalacao falhar com Microsoft Visual C++ 14.0, instale Microsoft C++ Build Tools ou use pyttsx3/Edge TTS/gTTS/Piper."
+            )
         wav_path = _temp_wav_path()
         script = _write_temp_script(
             [
@@ -422,6 +527,8 @@ class TTSManager:
         self._log = log
         coqui_provider = CoquiLikeTTS()
         self._providers: dict[str, TTSProvider] = {
+            "Edge TTS": EdgeOnlineTTS(),
+            "gTTS": GoogleTranslateTTS(),
             "Balabolka": CommandTemplateTTS(),
             "NaturalReader": EndpointTTS(),
             "TTSReader": EndpointTTS(),
@@ -502,6 +609,11 @@ class RVCConverter:
         return output_wav
 
     def _convert_with_python(self, input_wav: str, output_wav: str, config: TTSConfig, python_exe: str) -> None:
+        if not _external_python_has_module(python_exe, "rvc_python"):
+            raise TTSError(
+                "RVC precisa de `rvc-python` no Python portatil selecionado. "
+                "Clique em Ferramentas > Instalar RVC no Python portatil."
+            )
         script = _write_temp_script(
             [
                 "import sys",
@@ -547,7 +659,9 @@ def compatibility_message(provider: str, python_exe: str = "") -> str:
     label = ".".join(str(part) for part in version[:3])
     heavy = {"XTTS-v2", "Coqui TTS", "VITS", "YourTTS", "Glow-TTS", "F5-TTS", "Tortoise TTS", "ChatTTS", "OpenVoice", "Chatterbox TTS", "RVC"}
     if provider in heavy and version[:2] not in {(3, 10), (3, 11)}:
-        return f"Python {label} pode ser incompativel com {provider}. Use Python 3.10 ou 3.11 portatil."
+        return f"Python {label} pode ser incompativel com {provider}. Recomendado: Python 3.10.11 portatil."
+    if provider in {"Edge TTS", "gTTS"}:
+        return f"Python {label}. {provider} e simples, online, e precisa de ffmpeg para converter MP3 em WAV."
     if provider in {"pyttsx3", "Piper TTS", "eSpeak NG", "Festival", "Mimic 3", "MaryTTS", "RHVoice"}:
         return f"Python {label} OK. Este provedor depende principalmente do executavel/pacote configurado."
     return f"Python {label}. Configure endpoint ou comando externo conforme o provedor."
@@ -666,6 +780,20 @@ def _valid_external_python(value: str) -> str:
     except Exception:
         pass
     return str(path)
+
+
+def _external_python_has_module(python_exe: str, module: str) -> bool:
+    try:
+        subprocess.run(
+            [python_exe, "-c", f"import {module}"],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=20,
+        )
+        return True
+    except Exception:
+        return False
 
 
 def _require_compatible_python(provider: str) -> None:

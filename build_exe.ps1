@@ -16,6 +16,8 @@ Write-Host "[build] Usando Python: $python"
   --collect-all vosk `
   --collect-all sounddevice `
   --collect-all nacl `
+  --collect-submodules edge_tts `
+  --collect-submodules gtts `
   --collect-submodules discord `
   --collect-submodules pyttsx3 `
   --hidden-import=pyttsx3.drivers `
@@ -40,6 +42,8 @@ Write-Host "[build] Usando Python: $python"
   --hidden-import=tkinter.ttk `
   --hidden-import=tkinter.messagebox `
   --hidden-import=tkinter.filedialog `
+  --hidden-import=edge_tts `
+  --hidden-import=gtts `
   --hidden-import=sounddevice `
   --exclude-module=TTS `
   --exclude-module=torch `

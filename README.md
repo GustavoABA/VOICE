@@ -6,6 +6,7 @@ Aplicativo local em Python/Tkinter para transcrever o microfone com Vosk e fazer
 - `TTS`: escolha do motor de voz e configuracoes do provedor atual.
 - `RVC`: conversao de voz opcional depois de qualquer TTS.
 - `Ferramentas` e `Logs`: instalacao, compatibilidade de Python e acompanhamento de erros.
+- Barra lateral: botoes verticais para navegar, testar, abrir popup de texto e definir atalho.
 
 ## Instalar
 
@@ -41,6 +42,8 @@ Baixe o modelo PT-BR pela propria interface em `Conexao > Baixar modelo Vosk PT-
 A lista atual e:
 
 - Balabolka
+- Edge TTS
+- gTTS
 - NaturalReader
 - TTSReader
 - Piper TTS
@@ -65,6 +68,7 @@ A lista atual e:
 Nem todos esses motores possuem uma API Python padrao e estavel. Por isso o app usa quatro formas de integracao:
 
 - `pyttsx3`, `Kokoro TTS`, `Coqui/XTTS/VITS/YourTTS/Glow-TTS`, `Piper TTS`, `eSpeak NG`, `Festival`, `Mimic 3`, `F5-TTS`, `MaryTTS` e `RHVoice` tem integracoes diretas.
+- `Edge TTS` e `gTTS` sao os provedores online mais simples. Eles entram no executavel quando instalados por `requirements.txt`.
 - `NaturalReader` e `TTSReader` usam um endpoint HTTP configuravel que deve retornar WAV, MP3 ou JSON com `audio_base64`.
 - `Balabolka`, `Chatterbox TTS`, `Tortoise TTS`, `ChatTTS` e `OpenVoice` usam um comando externo configuravel.
 - O comando externo pode usar `{text}`, `{output}`, `{voice}`, `{speed}` e `{python}`.
@@ -97,6 +101,18 @@ tools\python310\python.exe
 ```
 
 Depois use `Usar Python portatil detectado` na aba `TTS`.
+
+No Windows, `Coqui/TTS` pode falhar com:
+
+```text
+Microsoft Visual C++ 14.0 or greater is required
+```
+
+Nesse caso instale Microsoft C++ Build Tools pela aba `Ferramentas`, ou use um TTS simples como `Edge TTS`, `gTTS`, `pyttsx3` ou `Piper TTS`.
+
+## Popup por atalho
+
+Use `Definir atalho` na barra lateral para escolher uma tecla, por padrao `F8`. Quando o app estiver focado e a tecla for pressionada, abre um popup modal de texto. Pressionar `Enter` envia o texto para o TTS; `Shift+Enter` quebra linha; `Esc` fecha.
 
 ## Logs
 
