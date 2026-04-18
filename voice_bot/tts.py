@@ -163,23 +163,38 @@ class TTSProvider(ABC):
 
 class Pyttsx3TTS(TTSProvider):
     def synthesize(self, text: str, config: TTSConfig, log: LogCallback | None = None) -> str:
+        comtypes = None
+        coinit_done = False
         try:
-            import pyttsx3
-        except Exception as exc:
-            raise TTSError(f"pyttsx3 nao esta instalado: {exc}") from exc
+            try:
+                import comtypes
 
-        wav_path = _temp_wav_path()
-        engine = pyttsx3.init()
-        if config.voice:
-            selected = config.voice.lower()
-            for voice in engine.getProperty("voices"):
-                if selected in str(voice.id).lower() or selected in str(voice.name).lower():
-                    engine.setProperty("voice", voice.id)
-                    break
-        engine.setProperty("rate", int(185 * _clamp(config.speed, 0.5, 1.8)))
-        engine.save_to_file(text, wav_path)
-        engine.runAndWait()
-        return wav_path
+                comtypes.CoInitialize()
+                coinit_done = True
+            except Exception:
+                comtypes = None
+            import pyttsx3
+
+            wav_path = _temp_wav_path()
+            engine = pyttsx3.init()
+            if config.voice:
+                selected = config.voice.lower()
+                for voice in engine.getProperty("voices"):
+                    if selected in str(voice.id).lower() or selected in str(voice.name).lower():
+                        engine.setProperty("voice", voice.id)
+                        break
+            engine.setProperty("rate", int(185 * _clamp(config.speed, 0.5, 1.8)))
+            engine.save_to_file(text, wav_path)
+            engine.runAndWait()
+            return wav_path
+        except Exception as exc:
+            raise TTSError(f"pyttsx3/SAPI falhou: {exc}") from exc
+        finally:
+            if coinit_done and comtypes is not None:
+                try:
+                    comtypes.CoUninitialize()
+                except Exception:
+                    pass
 
 
 class PiperTTS(TTSProvider):

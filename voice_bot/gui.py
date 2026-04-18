@@ -36,6 +36,7 @@ ENDPOINT_PROVIDERS = {"NaturalReader", "TTSReader"}
 COMMAND_PROVIDERS = {"Balabolka", "Chatterbox TTS", "Tortoise TTS", "ChatTTS", "OpenVoice"}
 COQUI_PROVIDERS = {"XTTS-v2", "Coqui TTS", "VITS", "YourTTS", "Glow-TTS"}
 PYTHON_HEAVY_PROVIDERS = COQUI_PROVIDERS | {"F5-TTS", "Chatterbox TTS", "Tortoise TTS", "ChatTTS", "OpenVoice"}
+READY_PROVIDERS = {"Edge TTS", "gTTS", "pyttsx3"}
 THEME = {
     "bg": "#09070b",
     "panel": "#151017",
@@ -484,6 +485,8 @@ class DiscordVoiceTTSApp(tk.Tk):
         if default_model and not self.coqui_model_var.get().strip():
             self.coqui_model_var.set(default_model)
 
+        ttk.Label(self.provider_options, text=self._provider_readiness_message(provider), wraplength=850).pack(anchor="w", pady=(0, 8))
+
         if provider == "pyttsx3":
             voices = list_windows_voices()
             self._combo(self.provider_options, "Voz instalada", self.tts_voice_var, tuple(voices) or ("",))
@@ -536,6 +539,19 @@ class DiscordVoiceTTSApp(tk.Tk):
 
         self.update_compatibility()
         self.save_persistent_config()
+
+    def _provider_readiness_message(self, provider: str) -> str:
+        if provider in READY_PROVIDERS:
+            return "Status: pronto para testar. Se falhar, use Edge TTS/gTTS como alternativa mais estavel."
+        if provider in {"NaturalReader", "TTSReader"}:
+            return "Status: precisa de endpoint HTTP configurado. Esses sites nao oferecem API local padrao no app."
+        if provider == "Piper TTS":
+            return "Status: precisa de piper.exe e modelo .onnx."
+        if provider in COQUI_PROVIDERS:
+            return "Status: precisa de pacote Coqui/TTS e, em alguns modelos, Speaker WAV."
+        if provider in COMMAND_PROVIDERS:
+            return "Status: precisa de comando externo que gere WAV em {output}."
+        return "Status: precisa configurar executavel/modelo antes de usar."
 
     def update_compatibility(self) -> None:
         provider = self.tts_provider_var.get()

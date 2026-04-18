@@ -67,7 +67,8 @@ class VoskMicTranscriber:
             model = Model(config.model_path)
             recognizer = KaldiRecognizer(model, TARGET_RATE)
         except Exception as exc:
-            self.status_queue.put(f"Falha ao carregar modelo Vosk: {exc}")
+            hint = _model_hint(config.model_path)
+            self.status_queue.put(f"Falha ao carregar modelo Vosk: {exc}. {hint}")
             return
 
         try:
@@ -108,3 +109,17 @@ def _drain(queue: SimpleQueue[str]) -> list[str]:
             values.append(queue.get_nowait())
         except Empty:
             return values
+
+
+def _model_hint(model_path: str) -> str:
+    path = Path(model_path)
+    if not path.exists():
+        return "A pasta configurada nao existe."
+    nested = [child for child in path.iterdir() if child.is_dir() and (child / "conf").exists()]
+    if nested:
+        return f"Talvez voce selecionou a pasta acima do modelo. Tente: {nested[0]}"
+    required = ("am", "conf")
+    missing = [name for name in required if not (path / name).exists()]
+    if missing:
+        return f"Pasta de modelo invalida. Itens ausentes: {', '.join(missing)}. Selecione a pasta extraida do modelo Vosk."
+    return "Verifique se o download/extracao do modelo terminou sem corromper arquivos."
