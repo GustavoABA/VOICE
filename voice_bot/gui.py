@@ -38,15 +38,18 @@ COQUI_PROVIDERS = {"XTTS-v2", "Coqui TTS", "VITS", "YourTTS", "Glow-TTS"}
 PYTHON_HEAVY_PROVIDERS = COQUI_PROVIDERS | {"F5-TTS", "Chatterbox TTS", "Tortoise TTS", "ChatTTS", "OpenVoice"}
 READY_PROVIDERS = {"Edge TTS", "gTTS", "pyttsx3"}
 THEME = {
-    "bg": "#09070b",
-    "panel": "#151017",
-    "panel2": "#1d141d",
-    "field": "#100b12",
-    "text": "#f3e7dc",
-    "muted": "#b7a8b4",
-    "accent": "#b83b55",
-    "accent2": "#d6b36a",
-    "border": "#5e2231",
+    "bg": "#08080b",
+    "panel": "#121217",
+    "panel2": "#1b1b22",
+    "field": "#0d0d12",
+    "text": "#f2f0ec",
+    "muted": "#aaa3a0",
+    "accent": "#a51f38",
+    "accent2": "#d4a72f",
+    "border": "#484850",
+    "danger": "#5d0c18",
+    "success": "#2f9b68",
+    "info": "#4b78b8",
 }
 
 
@@ -70,8 +73,11 @@ class DiscordVoiceTTSApp(tk.Tk):
         self._waiting_hotkey = False
         self._hotkey_bind_id: str | None = None
         self._global_hotkey_id = None
+        self._quick_popup: tk.Toplevel | None = None
+        self._quick_popup_entry: tk.Entry | None = None
 
         self._configure_style()
+        self._set_window_icon()
         self._build_variables()
         self._build_ui()
         self._bind_auto_save()
@@ -92,21 +98,32 @@ class DiscordVoiceTTSApp(tk.Tk):
         style.configure("TLabel", background=THEME["bg"], foreground=THEME["text"])
         style.configure("Panel.TLabel", background=THEME["panel"], foreground=THEME["text"])
         style.configure("Muted.TLabel", background=THEME["bg"], foreground=THEME["muted"])
-        style.configure("Title.TLabel", font=("Georgia", 22, "bold"), background=THEME["bg"], foreground="#f4d8ad")
+        style.configure("Title.TLabel", font=("Georgia", 22, "bold"), background=THEME["bg"], foreground=THEME["accent2"])
         style.configure("Section.TLabel", font=("Georgia", 13, "bold"), background=THEME["panel"], foreground=THEME["accent2"])
-        style.configure("Status.TLabel", font=("Segoe UI Semibold", 10), background=THEME["bg"], foreground=THEME["accent2"])
+        style.configure("Status.TLabel", font=("Segoe UI Semibold", 10), background=THEME["bg"], foreground=THEME["success"])
         style.configure("TLabelFrame", background=THEME["bg"], foreground=THEME["accent2"], bordercolor=THEME["border"])
         style.configure("TLabelFrame.Label", background=THEME["bg"], foreground=THEME["accent2"], font=("Georgia", 11, "bold"))
         style.configure("TEntry", fieldbackground=THEME["field"], foreground=THEME["text"], insertcolor=THEME["text"], bordercolor=THEME["border"])
         style.configure("TCombobox", fieldbackground=THEME["field"], background=THEME["field"], foreground=THEME["text"], arrowcolor=THEME["accent2"])
         style.configure("TButton", background=THEME["panel2"], foreground=THEME["text"], borderwidth=1, bordercolor=THEME["border"], padding=(10, 8))
-        style.map("TButton", background=[("active", "#2b1b29")], bordercolor=[("active", THEME["accent"])])
-        style.configure("Nav.TButton", anchor="w", background="#120c14", foreground=THEME["text"], padding=(12, 11))
-        style.configure("Accent.TButton", background=THEME["accent"], foreground="#fff6ed", font=("Segoe UI Semibold", 11), padding=(14, 9))
-        style.configure("Danger.TButton", background="#6f1f35", foreground="#fff6ed", font=("Segoe UI Semibold", 11), padding=(14, 9))
+        style.map("TButton", background=[("active", "#282833")], bordercolor=[("active", THEME["accent2"])])
+        style.configure("Nav.TButton", anchor="w", background="#101015", foreground=THEME["text"], padding=(12, 11))
+        style.configure("Accent.TButton", background=THEME["accent"], foreground=THEME["text"], font=("Segoe UI Semibold", 11), padding=(14, 9))
+        style.configure("Danger.TButton", background=THEME["danger"], foreground=THEME["text"], font=("Segoe UI Semibold", 11), padding=(14, 9))
         style.configure("TNotebook", background=THEME["bg"], borderwidth=0)
         style.configure("TNotebook.Tab", background=THEME["panel"], foreground=THEME["muted"], padding=(12, 6))
-        style.map("TNotebook.Tab", background=[("selected", THEME["accent"])], foreground=[("selected", "#fff6ed")])
+        style.map("TNotebook.Tab", background=[("selected", THEME["accent"])], foreground=[("selected", THEME["text"])])
+        style.layout("SideOnly.TNotebook.Tab", [])
+        style.configure("SideOnly.TNotebook", background=THEME["bg"], borderwidth=0, tabmargins=0)
+
+    def _set_window_icon(self) -> None:
+        icon = _resource_path("voice_bot/assets/nocturne_voice.ico")
+        if not icon.exists():
+            return
+        try:
+            self.iconbitmap(str(icon))
+        except Exception:
+            pass
 
     def _build_variables(self) -> None:
         cfg = self.config_values
@@ -121,7 +138,7 @@ class DiscordVoiceTTSApp(tk.Tk):
         self.cache_enabled_var = tk.BooleanVar(value=bool(cfg.get("cache_enabled", True)))
         self.local_monitor_enabled_var = tk.BooleanVar(value=bool(cfg.get("local_monitor_enabled", False)))
         self.local_output_device_var = tk.StringVar(value=cfg.get("local_output_device", ""))
-        self.vb_cable_enabled_var = tk.BooleanVar(value=bool(cfg.get("vb_cable_enabled", False)))
+        self.vb_cable_enabled_var = tk.BooleanVar(value=False)
         self.tts_provider_var = tk.StringVar(value=provider if provider in PROVIDERS else "pyttsx3")
         self.tts_voice_var = tk.StringVar(value=cfg.get("tts_voice", ""))
         self.tts_speed_var = tk.DoubleVar(value=_float(cfg.get("tts_speed", 1.0), 1.0))
@@ -244,7 +261,7 @@ class DiscordVoiceTTSApp(tk.Tk):
         header = ttk.Frame(root)
         header.pack(fill="x", pady=(0, 10))
         ttk.Label(header, text=APP_NAME, style="Title.TLabel").pack(side="left")
-        ttk.Label(header, text=f"v{__version__}", foreground="#555").pack(side="left", padx=(10, 0), pady=(5, 0))
+        ttk.Label(header, text=f"v{__version__}", style="Muted.TLabel").pack(side="left", padx=(10, 0), pady=(5, 0))
         ttk.Label(header, textvariable=self.status_var, style="Status.TLabel").pack(side="right")
 
         body = ttk.Frame(root)
@@ -260,7 +277,7 @@ class DiscordVoiceTTSApp(tk.Tk):
         ttk.Button(sidebar, text="Definir atalho", style="Nav.TButton", command=self.capture_popup_hotkey).pack(fill="x", pady=4)
         ttk.Label(sidebar, textvariable=self.popup_hotkey_var, style="Panel.TLabel", wraplength=150).pack(fill="x", pady=(6, 0))
 
-        self.notebook = ttk.Notebook(body)
+        self.notebook = ttk.Notebook(body, style="SideOnly.TNotebook")
         self.notebook.pack(side="left", fill="both", expand=True)
 
         self.connection_tab = ttk.Frame(self.notebook, padding=14)
@@ -350,7 +367,7 @@ class DiscordVoiceTTSApp(tk.Tk):
         top.pack(fill="x")
         self._combo(top, "TTS", self.tts_provider_var, PROVIDERS)
         self._entry(top, "Voz / speaker", self.tts_voice_var)
-        self._scale(top, "Velocidade", self.tts_speed_var, 0.5, 1.8)
+        self._scale(top, "Velocidade", self.tts_speed_var, 0.5, 2.4)
         self._entry(top, "Timeout segundos", self.tts_timeout_var)
         self._path_entry(top, "ffmpeg", self.ffmpeg_exe_var, self.select_ffmpeg)
         self._path_entry(top, "Python portatil", self.python_exe_var, self.select_python)
@@ -362,6 +379,7 @@ class DiscordVoiceTTSApp(tk.Tk):
         actions = ttk.Frame(self.tts_tab)
         actions.pack(side="right", fill="y", padx=(10, 0), pady=(10, 0))
         ttk.Button(actions, text="Testar TTS", command=self.test_tts).pack(fill="x", pady=3)
+        ttk.Button(actions, text="Modo rapido", command=self.apply_fast_tts_mode).pack(fill="x", pady=3)
         ttk.Button(actions, text="Usar Python portatil", command=self.use_portable_python).pack(fill="x", pady=3)
         ttk.Button(actions, text="Popup de texto", command=self.open_quick_text_popup).pack(fill="x", pady=3)
 
@@ -369,7 +387,6 @@ class DiscordVoiceTTSApp(tk.Tk):
         playback = ttk.LabelFrame(self.audio_tab, text="Saida local baseada no message.txt", padding=12)
         playback.pack(fill="x")
         ttk.Checkbutton(playback, text="Tocar tambem no meu PC", variable=self.local_monitor_enabled_var).pack(anchor="w", pady=3)
-        ttk.Checkbutton(playback, text="Enviar tambem para VB-CABLE (CABLE Input)", variable=self.vb_cable_enabled_var).pack(anchor="w", pady=3)
 
         row = ttk.Frame(playback)
         row.pack(fill="x", pady=6)
@@ -405,9 +422,17 @@ class DiscordVoiceTTSApp(tk.Tk):
         self._scale(panel, "Index rate", self.rvc_index_rate_var, 0.0, 1.0)
         ttk.Label(
             panel,
-            text="RVC usa o audio gerado pelo TTS selecionado como base. Para maior compatibilidade, use Python 3.10/3.11 portatil com rvc-python instalado.",
+            text=(
+                "RVC usa o audio gerado pelo TTS selecionado como base. "
+                "Use o Python 3.10 portatil e instale pelo botao abaixo; ele fixa pip==24.0 para evitar erro com omegaconf."
+            ),
             wraplength=880,
         ).pack(anchor="w", pady=(10, 0))
+        actions = ttk.Frame(panel)
+        actions.pack(fill="x", pady=(10, 0))
+        ttk.Button(actions, text="Verificar RVC", command=self.check_rvc_status).pack(side="left", padx=(0, 8))
+        ttk.Button(actions, text="Instalar RVC no Python 3.10", style="Accent.TButton", command=self.install_rvc).pack(side="left", padx=(0, 8))
+        ttk.Button(actions, text="Usar Python 3.10", command=self.use_portable_python).pack(side="left")
 
     def _build_tools_tab(self) -> None:
         panel = ttk.LabelFrame(self.tools_tab, text="Instalacao e compatibilidade", padding=12)
@@ -443,7 +468,8 @@ class DiscordVoiceTTSApp(tk.Tk):
             ("Atualizar pip", "-m pip install --upgrade pip setuptools wheel"),
             ("Instalar Edge/gTTS", "-m pip install edge-tts gTTS imageio-ffmpeg keyboard"),
             ("Instalar Coqui", "-m pip install numpy==1.26.4 Cython<3 packaging TTS==0.22.0"),
-            ("Instalar RVC", "-m pip install pip<24.1 rvc-python"),
+            ("Preparar pip RVC", "-m pip install --force-reinstall pip==24.0 setuptools==68.2.2 wheel==0.41.3"),
+            ("Instalar RVC", "-m pip install --prefer-binary numpy==1.23.5 omegaconf==2.0.6 rvc-python==0.1.5"),
         ):
             ttk.Button(suggestions, text=label, command=lambda value=command: self.set_python_console_command(value)).pack(side="left", padx=(0, 6), pady=2)
         ttk.Button(suggestions, text="Executar", style="Accent.TButton", command=self.run_python_console_command).pack(side="right", padx=(6, 0))
@@ -588,6 +614,8 @@ class DiscordVoiceTTSApp(tk.Tk):
             self.stop_services()
             return
 
+        if not self.ensure_rvc_ready():
+            return
         self.save_persistent_config()
         input_device = self.input_map.get(self.input_device_var.get())
         try:
@@ -632,6 +660,8 @@ class DiscordVoiceTTSApp(tk.Tk):
         if not self.discord_bot.running:
             messagebox.showwarning("Falar na call", "Inicie o bot antes de enviar texto para a call.")
             return
+        if not self.ensure_rvc_ready():
+            return
         self._sync_manual_text_from_widget()
         text = self.manual_text_var.get().strip()
         if not text:
@@ -642,41 +672,86 @@ class DiscordVoiceTTSApp(tk.Tk):
         self.log(f"Texto manual enviado: {text[:100]}")
 
     def open_quick_text_popup(self, _event=None) -> None:
+        if self._quick_popup is not None and self._quick_popup.winfo_exists():
+            self._position_quick_popup(self._quick_popup)
+            self._quick_popup.deiconify()
+            self._quick_popup.lift()
+            self._quick_popup.attributes("-topmost", True)
+            if self._quick_popup_entry is not None:
+                self._quick_popup_entry.focus_force()
+                self._quick_popup_entry.selection_range(0, "end")
+            return
+
         popup = tk.Toplevel(self)
+        self._quick_popup = popup
         popup.title("Enviar texto para TTS")
         popup.configure(bg=THEME["bg"])
-        popup.geometry("560x240")
-        popup.transient(self)
+        self._position_quick_popup(popup)
         popup.grab_set()
+        popup.attributes("-topmost", True)
         popup.focus_force()
+        self._set_child_window_icon(popup)
 
-        frame = ttk.Frame(popup, padding=14)
+        frame = ttk.Frame(popup, padding=10)
         frame.pack(fill="both", expand=True)
-        ttk.Label(frame, text="Texto para a call", style="Title.TLabel").pack(anchor="w", pady=(0, 8))
-        text = self._text_widget(frame, height=6)
-        text.pack(fill="both", expand=True)
-        text.focus_set()
+        ttk.Label(frame, text="Texto para a call", style="Section.TLabel").pack(anchor="w", pady=(0, 6))
+        text = tk.Entry(
+            frame,
+            bg=THEME["field"],
+            fg=THEME["text"],
+            insertbackground=THEME["text"],
+            selectbackground=THEME["accent"],
+            selectforeground=THEME["bg"],
+            relief="flat",
+            highlightthickness=1,
+            highlightbackground=THEME["border"],
+            highlightcolor=THEME["accent"],
+            font=("Segoe UI", 11),
+        )
+        text.pack(fill="x")
+        self._quick_popup_entry = text
+        text.focus_force()
 
         actions = ttk.Frame(frame)
-        actions.pack(fill="x", pady=(10, 0))
+        actions.pack(fill="x", pady=(6, 0))
+        ttk.Label(actions, text="Enter envia. Esc cancela.", style="Muted.TLabel").pack(side="left")
         ttk.Button(actions, text="Cancelar", command=popup.destroy).pack(side="right")
         ttk.Button(actions, text="Enviar", style="Accent.TButton", command=lambda: self._send_popup_text(text, popup)).pack(side="right", padx=(0, 8))
 
-        text.bind("<Return>", lambda event: self._popup_enter(event, text, popup))
-        text.bind("<Control-Return>", lambda event: self._send_popup_text(text, popup))
+        text.bind("<Return>", lambda _event: self._send_popup_text(text, popup))
         popup.bind("<Escape>", lambda _event: popup.destroy())
+        popup.protocol("WM_DELETE_WINDOW", popup.destroy)
+        popup.bind("<Destroy>", lambda event: self._clear_quick_popup(event, popup))
 
-    def _popup_enter(self, event, text_widget: tk.Text, popup: tk.Toplevel) -> str:
-        if event.state & 0x0001:
-            return ""
-        self._send_popup_text(text_widget, popup)
-        return "break"
+    def _position_quick_popup(self, popup: tk.Toplevel) -> None:
+        x = self.winfo_pointerx()
+        y = self.winfo_pointery()
+        popup.geometry(f"520x96+{x}+{y}")
 
-    def _send_popup_text(self, text_widget: tk.Text, popup: tk.Toplevel) -> str:
+    def _clear_quick_popup(self, event, popup: tk.Toplevel) -> None:
+        if event.widget is popup:
+            self._quick_popup = None
+            self._quick_popup_entry = None
+
+    def _set_child_window_icon(self, window: tk.Toplevel) -> None:
+        icon = _resource_path("voice_bot/assets/nocturne_voice.ico")
+        if not icon.exists():
+            return
+        try:
+            window.iconbitmap(str(icon))
+        except Exception:
+            pass
+
+    def _send_popup_text(self, text_widget: tk.Entry | tk.Text, popup: tk.Toplevel) -> str:
         if not self.discord_bot.running:
             messagebox.showwarning("Falar na call", "Inicie o bot antes de enviar texto para a call.", parent=popup)
             return "break"
-        text = text_widget.get("1.0", "end-1c").strip()
+        if not self.ensure_rvc_ready(parent=popup):
+            return "break"
+        if isinstance(text_widget, tk.Text):
+            text = text_widget.get("1.0", "end-1c").strip()
+        else:
+            text = text_widget.get().strip()
         if not text:
             messagebox.showwarning("Falar na call", "Digite uma frase.", parent=popup)
             return "break"
@@ -722,26 +797,34 @@ class DiscordVoiceTTSApp(tk.Tk):
             except Exception:
                 pass
             self._hotkey_bind_id = None
+
+        if self.global_hotkey_enabled_var.get() and self._register_global_hotkey():
+            return
+
         sequence = self._hotkey_sequence(self.popup_hotkey_var.get())
         if sequence:
             self.bind_all(sequence, self.open_quick_text_popup)
             self._hotkey_bind_id = sequence
-        if self.global_hotkey_enabled_var.get():
-            self._register_global_hotkey()
+            if self.global_hotkey_enabled_var.get():
+                self.log(f"Hotkey local ativa como fallback: {self.popup_hotkey_var.get()}", level="warn")
+            else:
+                self.log(f"Hotkey local ativa: {self.popup_hotkey_var.get()}")
 
-    def _register_global_hotkey(self) -> None:
+    def _register_global_hotkey(self) -> bool:
         try:
             import keyboard
 
             hotkey = self.popup_hotkey_var.get().replace("Espaco", "space").replace("Ctrl", "ctrl").lower()
             self._global_hotkey_id = keyboard.add_hotkey(hotkey, lambda: self.after(0, self.open_quick_text_popup))
             self.log(f"Hotkey global ativa: {self.popup_hotkey_var.get()}")
+            return True
         except Exception as exc:
             self._global_hotkey_id = None
             self.log(
                 f"Hotkey global indisponivel: {exc}. Instale com Ferramentas > Instalar TTS atual ou rode pip install keyboard.",
                 level="warn",
             )
+            return False
 
     def _remove_global_hotkey(self) -> None:
         if self._global_hotkey_id is None:
@@ -790,6 +873,8 @@ class DiscordVoiceTTSApp(tk.Tk):
 
     def test_tts(self) -> None:
         text = "Teste de voz do Nocturne Voice."
+        if not self.ensure_rvc_ready():
+            return
         self.save_persistent_config()
         config = self.current_tts_config()
 
@@ -800,6 +885,96 @@ class DiscordVoiceTTSApp(tk.Tk):
 
         self.installer.run(f"Teste TTS {self.tts_provider_var.get()}", action)
 
+    def apply_fast_tts_mode(self) -> None:
+        self.tts_provider_var.set("Edge TTS")
+        self.edge_voice_var.set("pt-BR-FranciscaNeural")
+        self.cache_enabled_var.set(True)
+        self.local_monitor_enabled_var.set(False)
+        self.vb_cable_enabled_var.set(False)
+        self.rvc_enabled_var.set(False)
+        self.tts_speed_var.set(1.45)
+        self.save_persistent_config()
+        self.update_provider_panel()
+        self.log("Modo rapido ativado: Edge TTS, cache ligado, monitor local e RVC desligados.")
+
+    def check_rvc_status(self) -> None:
+        error = self._rvc_readiness_error(force=True)
+        if error:
+            self.log(error, level="warn")
+            messagebox.showwarning("RVC", error)
+            return
+        self.log("RVC pronto para uso", level="done")
+        messagebox.showinfo("RVC", "RVC pronto para uso no Python selecionado.")
+
+    def ensure_rvc_ready(self, parent: tk.Misc | None = None, interactive: bool = True) -> bool:
+        error = self._rvc_readiness_error()
+        if not error:
+            return True
+        self.status_var.set("RVC indisponivel")
+        self.log(error, level="warn")
+        if interactive:
+            messagebox.showwarning("RVC", error, parent=parent)
+        return False
+
+    def _rvc_readiness_error(self, force: bool = False) -> str:
+        if not force and not self.rvc_enabled_var.get():
+            return ""
+
+        model = self.rvc_model_var.get().strip()
+        if not model:
+            return "Selecione o modelo RVC .pth antes de ativar RVC."
+        if not Path(model).exists():
+            return f"Modelo RVC nao encontrado: {model}"
+
+        python_exe = self.python_exe_var.get().strip()
+        if python_exe:
+            if not Path(python_exe).exists():
+                return f"Python selecionado para RVC nao encontrado: {python_exe}"
+            version = self._python_version(python_exe)
+            if version[:2] not in {(3, 10), (3, 11)}:
+                label = ".".join(str(part) for part in version[:3])
+                return f"RVC precisa de Python 3.10 ou 3.11. Python selecionado: {label}. Use o botao Instalar RVC no Python 3.10."
+            if not self._python_has_module(python_exe, "rvc_python"):
+                return (
+                    "rvc-python nao esta instalado no Python selecionado. "
+                    "Clique em RVC > Instalar RVC no Python 3.10. "
+                    "Nao use pip novo para RVC; o instalador fixa pip==24.0 por causa do omegaconf."
+                )
+            return ""
+
+        if sys.version_info[:2] not in {(3, 10), (3, 11)}:
+            return "RVC precisa de Python 3.10 ou 3.11. Instale o Python 3.10 portatil na aba Python/RVC."
+        if not self._python_has_module(sys.executable, "rvc_python"):
+            return "rvc-python nao esta instalado no Python atual. Prefira o botao RVC > Instalar RVC no Python 3.10."
+        return ""
+
+    def _python_version(self, python_exe: str) -> tuple[int, int, int]:
+        try:
+            output = subprocess.check_output(
+                [python_exe, "-c", "import sys; print('.'.join(map(str, sys.version_info[:3])))"],
+                text=True,
+                timeout=10,
+            ).strip()
+            parts = [int(piece) for piece in output.split(".")[:3]]
+            while len(parts) < 3:
+                parts.append(0)
+            return tuple(parts[:3])
+        except Exception:
+            return (0, 0, 0)
+
+    def _python_has_module(self, python_exe: str, module: str) -> bool:
+        try:
+            subprocess.run(
+                [python_exe, "-c", f"import {module}"],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=20,
+            )
+            return True
+        except Exception:
+            return False
+
     def current_tts_config(self) -> TTSConfig:
         return TTSConfig(
             provider=self.tts_provider_var.get(),
@@ -808,7 +983,7 @@ class DiscordVoiceTTSApp(tk.Tk):
             cache_enabled=self.cache_enabled_var.get(),
             local_monitor_enabled=self.local_monitor_enabled_var.get(),
             local_output_device=self.local_output_device_var.get(),
-            vb_cable_enabled=self.vb_cable_enabled_var.get(),
+            vb_cable_enabled=False,
             timeout_seconds=_int(self.tts_timeout_var.get(), 240),
             ffmpeg_exe=self.ffmpeg_exe_var.get(),
             python_exe=self.python_exe_var.get(),
@@ -873,6 +1048,7 @@ class DiscordVoiceTTSApp(tk.Tk):
         def action() -> None:
             exe = self.installer.install_portable_rvc()
             self.after(0, lambda: self.python_exe_var.set(str(exe)))
+            self.after(0, lambda: self.log(f"Python RVC selecionado: {exe}", level="done"))
 
         self.installer.run("rvc-python", action)
 
@@ -1006,6 +1182,9 @@ class DiscordVoiceTTSApp(tk.Tk):
             self.log(status)
         for text in self.transcriber.drain_texts():
             self.last_text_var.set(text)
+            if not self.ensure_rvc_ready(interactive=False):
+                self.rvc_enabled_var.set(False)
+                self.log("RVC desativado para evitar erro durante a transcricao.", level="warn")
             self.discord_bot.update_tts_config(self.current_tts_config())
             self.discord_bot.speak(text)
             self.log(f"Transcrito: {text}")
@@ -1079,7 +1258,7 @@ class DiscordVoiceTTSApp(tk.Tk):
                 "cache_enabled": self.cache_enabled_var.get(),
                 "local_monitor_enabled": self.local_monitor_enabled_var.get(),
                 "local_output_device": self.local_output_device_var.get(),
-                "vb_cable_enabled": self.vb_cable_enabled_var.get(),
+                "vb_cable_enabled": False,
                 "tts_provider": self.tts_provider_var.get(),
                 "tts_voice": self.tts_voice_var.get(),
                 "tts_speed": self.tts_speed_var.get(),
@@ -1164,6 +1343,7 @@ class DiscordVoiceTTSApp(tk.Tk):
             fg=THEME["text"],
             insertbackground=THEME["text"],
             selectbackground=THEME["accent"],
+            selectforeground=THEME["bg"],
             relief="flat",
             borderwidth=1,
             highlightthickness=1,
@@ -1251,6 +1431,14 @@ def _open_path(path: Path) -> None:
         os_startfile(str(path))
     except Exception:
         webbrowser.open(path.as_uri())
+
+
+def _resource_path(relative_path: str) -> Path:
+    base = Path(getattr(sys, "_MEIPASS", Path.cwd()))
+    bundled = base / relative_path
+    if bundled.exists():
+        return bundled
+    return Path(__file__).resolve().parent.parent / relative_path
 
 
 def main() -> None:

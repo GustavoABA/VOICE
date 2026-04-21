@@ -4,7 +4,7 @@ Aplicativo local em Python/Tkinter para transcrever o microfone com Vosk e fazer
 
 - `Painel`: token do bot, usuario alvo, microfone, modelo Vosk e texto manual.
 - `Vozes`: escolha do motor de voz e configuracoes do provedor atual.
-- `Audio`: cache de TTS, saida local, VB-CABLE e hotkey global.
+- `Audio`: cache de TTS, saida local e hotkey global.
 - `RVC`: conversao de voz opcional depois de qualquer TTS.
 - `Python`: instalacao de Python portatil, dependencias e links de download.
 - `Logs`: acompanhamento de status e erros.
@@ -90,7 +90,8 @@ RVC nao e mais um provedor TTS separado. Ele fica na aba `RVC` e pode ser ativad
 3. Selecione o modelo `.pth` e, se houver, o indice `.index`.
 4. Configure pitch, device e index rate.
 
-Para evitar conflito de versoes, prefira instalar `rvc-python` no Python 3.10 portatil pela aba `Ferramentas`.
+Para evitar conflito de versoes, prefira instalar `rvc-python` pelo botao `Instalar RVC no Python 3.10` da aba `RVC`.
+O instalador fixa `pip==24.0`, porque `omegaconf==2.0.6` falha com pip 24.1 ou mais novo.
 
 ## Compatibilidade de Python
 
@@ -114,7 +115,10 @@ Nesse caso instale Microsoft C++ Build Tools pela aba `Ferramentas`, ou use um T
 
 ## Popup por atalho
 
-Use `Definir atalho` na barra lateral para escolher uma tecla, por padrao `F8`. Quando o app estiver focado e a tecla for pressionada, abre um popup modal de texto. Pressionar `Enter` envia o texto para o TTS; `Shift+Enter` quebra linha; `Esc` fecha.
+Use `Definir atalho` na barra lateral para escolher uma tecla, por padrao `F8`.
+Com `Hotkey global` ativo e a biblioteca `keyboard` instalada, o popup abre mesmo com o app minimizado ou outra janela em foco.
+O app usa apenas um popup por vez: se ele ja estiver aberto, o atalho so reposiciona e foca a janela existente.
+Pressionar `Enter` envia o texto para o TTS; `Esc` fecha.
 
 ## Logs
 
@@ -129,12 +133,12 @@ build_exe.bat
 ```
 
 O `.bat` cria/usa `.venv`, instala dependencias, instala PyInstaller e chama o build automaticamente. Ao terminar, ele deixa a janela aberta mostrando o caminho do executavel.
+O executavel recebe o icone `voice_bot/assets/nocturne_voice.ico` automaticamente.
 
 ## Recursos baseados em message.txt
 
 - Cache em `cache_audio`: frases repetidas com a mesma voz carregam mais rapido.
 - Saida local opcional: toca o TTS tambem no seu dispositivo de audio.
-- VB-CABLE opcional: procura o dispositivo `CABLE Input` e envia o TTS para ele.
 - Hotkey global opcional com `keyboard`: abre o popup mesmo fora da janela quando o Windows permitir.
 - Seletores de voz/idioma para provedores que possuem lista conhecida.
 

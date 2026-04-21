@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from queue import Empty, SimpleQueue
 from threading import Event, Thread
 
-from .tts import TTSConfig, TTSManager, cleanup_wav, play_wav_monitor, resolve_ffmpeg_exe, wav_to_discord_pcm
+from .tts import TTSError, TTSConfig, TTSManager, cleanup_wav, play_wav_monitor, resolve_ffmpeg_exe, wav_to_discord_pcm
 
 
 @dataclass(frozen=True, slots=True)
@@ -194,6 +194,9 @@ class DiscordVoiceBot:
                 voice_client.play(source, after=after)
                 self.status_queue.put(f"Falando: {text[:80]}")
                 await done.wait()
+            except TTSError as exc:
+                detail = str(exc).strip() or exc.__class__.__name__
+                self.status_queue.put(f"Erro no TTS: {detail}")
             except Exception as exc:
                 detail = str(exc).strip() or exc.__class__.__name__
                 self.status_queue.put(f"Erro no TTS: {detail}")

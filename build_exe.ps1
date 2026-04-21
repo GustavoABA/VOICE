@@ -3,6 +3,7 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $venvPython = Join-Path $root ".venv\Scripts\python.exe"
 $python = if (Test-Path $venvPython) { $venvPython } else { "python" }
+$icon = Join-Path $root "voice_bot\assets\nocturne_voice.ico"
 
 Write-Host "[build] Usando Python: $python"
 & $python -m pip install --upgrade pyinstaller
@@ -13,6 +14,8 @@ Write-Host "[build] Usando Python: $python"
   --onedir `
   --windowed `
   --name NocturneVoice `
+  --icon "$icon" `
+  --add-data "$icon;voice_bot/assets" `
   --collect-all vosk `
   --collect-all sounddevice `
   --collect-all soundfile `

@@ -16,6 +16,10 @@ VOSK_PT_URL = "https://alphacephei.com/vosk/models/vosk-model-small-pt-0.3.zip"
 PYTHON310_URL = "https://www.python.org/ftp/python/3.10.11/python-3.10.11-embed-amd64.zip"
 PYTHON311_URL = "https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip"
 GET_PIP_URL = "https://bootstrap.pypa.io/get-pip.py"
+RVC_PIP_VERSION = "pip==24.0"
+RVC_SETUPTOOLS_VERSION = "setuptools==68.2.2"
+RVC_WHEEL_VERSION = "wheel==0.41.3"
+RVC_PACKAGE_VERSION = "rvc-python==0.1.5"
 
 
 def vosk_pt_dir() -> Path:
@@ -108,10 +112,34 @@ class InstallManager:
     def install_portable_rvc(self) -> Path:
         self.events.put(InstallEvent("info", "Instalando rvc-python no Python 3.10 portatil..."))
         python_exe = self.install_portable_python310()
-        self._run_command([str(python_exe), "-m", "pip", "install", "setuptools", "wheel"])
-        # rvc-python requires omegaconf==2.0.6 which has invalid metadata rejected by pip>=24.1
-        self._run_command([str(python_exe), "-m", "pip", "install", "pip<24.1"])
-        self._run_command([str(python_exe), "-m", "pip", "install", "--prefer-binary", "rvc-python"])
+        self.events.put(
+            InstallEvent(
+                "warn",
+                "RVC usa omegaconf==2.0.6; pip 24.1+ recusa esse pacote. Vou fixar pip 24.0 neste Python portatil.",
+            )
+        )
+        self._run_command([str(python_exe), "-m", "pip", "install", "--force-reinstall", RVC_PIP_VERSION])
+        self._run_command([str(python_exe), "-m", "pip", "--version"])
+        self._run_command(
+            [
+                str(python_exe),
+                "-m",
+                "pip",
+                "install",
+                "--force-reinstall",
+                RVC_SETUPTOOLS_VERSION,
+                RVC_WHEEL_VERSION,
+            ]
+        )
+        self._run_command([str(python_exe), "-m", "pip", "install", "--prefer-binary", "numpy==1.23.5", "omegaconf==2.0.6"])
+        try:
+            self._run_command([str(python_exe), "-m", "pip", "install", "--prefer-binary", RVC_PACKAGE_VERSION])
+        except RuntimeError as exc:
+            raise RuntimeError(
+                "Nao foi possivel instalar rvc-python automaticamente. "
+                "Use Python 3.10 portatil, mantenha pip==24.0 e tente novamente. "
+                "Se o erro citar Build Tools ou wheels ausentes, instale Microsoft C++ Build Tools pela aba Python."
+            ) from exc
         return python_exe
 
     def install_portable_coqui(self) -> Path:

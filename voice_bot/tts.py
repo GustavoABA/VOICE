@@ -183,7 +183,7 @@ class Pyttsx3TTS(TTSProvider):
                     if selected in str(voice.id).lower() or selected in str(voice.name).lower():
                         engine.setProperty("voice", voice.id)
                         break
-            engine.setProperty("rate", int(185 * _clamp(config.speed, 0.5, 1.8)))
+            engine.setProperty("rate", int(185 * _clamp(config.speed, 0.5, 2.4)))
             engine.save_to_file(text, wav_path)
             engine.runAndWait()
             return wav_path
@@ -223,6 +223,7 @@ class EdgeOnlineTTS(TTSProvider):
         mp3_path.close()
         wav_path = _temp_wav_path()
         voice = config.edge_voice.strip() or config.voice.strip() or "pt-BR-FranciscaNeural"
+        rate = _edge_rate(config.speed)
         try:
             try:
                 import edge_tts
@@ -234,6 +235,8 @@ class EdgeOnlineTTS(TTSProvider):
                         "edge_tts",
                         "--voice",
                         voice,
+                        "--rate",
+                        rate,
                         "--text",
                         text,
                         "--write-media",
@@ -247,7 +250,7 @@ class EdgeOnlineTTS(TTSProvider):
 
                 loop = asyncio.new_event_loop()
                 try:
-                    loop.run_until_complete(edge_tts.Communicate(text, voice).save(mp3_path.name))
+                    loop.run_until_complete(edge_tts.Communicate(text, voice, rate=rate).save(mp3_path.name))
                 finally:
                     loop.close()
             _convert_audio_to_wav(mp3_path.name, wav_path, config.ffmpeg_exe, config.timeout_seconds)
@@ -651,10 +654,14 @@ class RVCConverter:
         return output_wav
 
     def _convert_with_python(self, input_wav: str, output_wav: str, config: TTSConfig, python_exe: str) -> None:
+        version = _python_version_tuple(python_exe)
+        if version[:2] not in {(3, 10), (3, 11)}:
+            label = ".".join(str(part) for part in version[:3])
+            raise TTSError(f"RVC precisa de Python 3.10 ou 3.11. Python selecionado: {label}. Use Ferramentas > Instalar RVC.")
         if not _external_python_has_module(python_exe, "rvc_python"):
             raise TTSError(
                 "RVC precisa de `rvc-python` no Python portatil selecionado. "
-                "Clique em Ferramentas > Instalar RVC no Python portatil."
+                "Clique em Ferramentas > Instalar RVC. Se o pip reclamar de omegaconf, use o botao Instalar RVC para fixar pip==24.0."
             )
         script = _write_temp_script(
             [
@@ -1030,6 +1037,13 @@ def _convert_audio_to_wav(source_path: str, wav_path: str, ffmpeg_exe: str, time
         timeout=timeout,
         error_prefix="FFmpeg falhou ao converter audio",
     )
+
+
+def _edge_rate(speed: float) -> str:
+    percent = int(round((_clamp(speed, 0.5, 2.0) - 1.0) * 100))
+    if percent >= 0:
+        return f"+{percent}%"
+    return f"{percent}%"
 
 
 def resolve_ffmpeg_exe(ffmpeg_exe: str = "ffmpeg") -> str:
